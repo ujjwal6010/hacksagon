@@ -12,6 +12,7 @@ export const config = {
   port: process.env.PORT || 5000,
   mongodbUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/janani_db',
   pythonServiceUrl: process.env.PYTHON_SERVICE_URL || 'http://localhost:8000',
+  jwtSecret: process.env.JWT_SECRET || 'dev_fallback_secret_key',
 };
 
 export default config;
