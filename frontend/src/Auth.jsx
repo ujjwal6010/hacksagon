@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Phone, Lock, User, ArrowLeft, Heart, X } from 'lucide-react';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 const Auth = ({ onClose, onAuthSuccess }) => {
     const [isLogin, setIsLogin] = useState(true);
     const [step, setStep] = useState('auth');
@@ -31,6 +33,24 @@ const Auth = ({ onClose, onAuthSuccess }) => {
         setLoading(true);
         setError('');
 
+        if (!isLogin) {
+            if (!formData.name.trim()) {
+                setError('Name is required');
+                setLoading(false);
+                return;
+            }
+            if (formData.password.length < 6) {
+                setError('Password must be at least 6 characters long');
+                setLoading(false);
+                return;
+            }
+            if (formData.password !== formData.confirmPassword) {
+                setError('Passwords do not match');
+                setLoading(false);
+                return;
+            }
+        }
+
         const endpoint = isLogin ? '/api/auth/login' : '/api/auth/signup';
         const payload = isLogin
             ? {
@@ -38,33 +58,24 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                 password: formData.password
             }
             : {
-                name: formData.name,
+                name: formData.name.trim(),
                 email: formData.email || undefined,
                 phoneNumber: formData.phoneNumber || undefined,
                 password: formData.password
             };
 
         try {
-            let userData;
-            try {
-                const response = await fetch(`${import.meta.env.VITE_API_URL}${endpoint}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.message || 'Something went wrong');
-                userData = data.user;
-                if (data.token) localStorage.setItem('token', data.token);
-            } catch (e) {
-                console.warn("Backend auth failed, using mock data for care:", e);
-                userData = {
-                    id: 'mock-id',
-                    name: formData.name || 'Pragati',
-                    email: formData.email,
-                    phoneNumber: formData.phoneNumber
-                };
-            }
+            const response = await fetch(`${API_BASE}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || 'Something went wrong');
+
+            const userData = data.user;
+            if (data.token) localStorage.setItem('token', data.token);
 
             if (isLogin) {
                 localStorage.setItem('user', JSON.stringify(userData));
@@ -335,6 +346,29 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                                         }}
                                     />
                                 </div>
+
+                                {!isLogin && (
+                                    <div style={{ position: 'relative' }}>
+                                        <Lock size={20} style={{ position: 'absolute', left: '1.2rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--primary)', opacity: 0.6 }} />
+                                        <input
+                                            type="password"
+                                            name="confirmPassword"
+                                            placeholder="Confirm Password"
+                                            required
+                                            value={formData.confirmPassword}
+                                            onChange={handleChange}
+                                            style={{
+                                                width: '100%',
+                                                padding: '1.1rem 1.1rem 1.1rem 3.5rem',
+                                                borderRadius: '18px',
+                                                border: '2px solid #f1f5f9',
+                                                outline: 'none',
+                                                fontSize: '1rem',
+                                                background: '#f8fafc'
+                                            }}
+                                        />
+                                    </div>
+                                )}
 
                                 {error && (
                                     <motion.p

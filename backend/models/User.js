@@ -1,64 +1,47 @@
-import mongoose from 'mongoose';
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
-/**
- * User Schema (Normalized)
- * 
- * Represents an authenticated user.
- * At least one of email or phoneNumber is required.
- */
-const userSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    email: {
-      type: String,
-      unique: true,
-      sparse: true,
-      lowercase: true,
-      trim: true,
-      validate: {
-        validator: function (v) {
-          return !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-        },
-        message: 'Invalid email format',
-      },
-    },
-    phoneNumber: {
-      type: String,
-      unique: true,
-      sparse: true,
-      trim: true,
-      validate: {
-        validator: function (v) {
-          return !v || /^[+\d\s\-()]+$/.test(v) && v.replace(/\D/g, '').length >= 7 && v.replace(/\D/g, '').length <= 15;
-        },
-        message: 'Phone number must contain only digits, +, -, spaces, or parentheses, and be 7-15 digits long',
-      },
-    },
-    passwordHash: {
-      type: String,
-      required: true,
-      select: false,
-    },
+const userSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true,
   },
-  {
-    timestamps: true,
-  }
-);
-
-/**
- * Pre-validation hook: Ensure at least one of email or phoneNumber
- */
-userSchema.pre('validate', function (next) {
-  if (!this.email && !this.phoneNumber) {
-    this.invalidate('email', 'At least one of email or phoneNumber is required');
-  }
-  next();
+  email: {
+    type: String,
+    unique: true,
+    sparse: true,
+    lowercase: true,
+    trim: true,
+  },
+  phoneNumber: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true,
+  },
+  password: {
+    type: String,
+    required: true,
+    minlength: 6,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
 });
 
-const User = mongoose.model('User', userSchema);
+userSchema.pre('save', async function onSave() {
+  if (!this.isModified('password')) {
+    return;
+  }
 
-export default User;
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+});
+
+userSchema.methods.comparePassword = function comparePassword(candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+module.exports = mongoose.model('User', userSchema);

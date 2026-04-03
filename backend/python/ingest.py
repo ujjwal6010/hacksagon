@@ -1,75 +1,58 @@
-import json
-from pathlib import Path
+import os
+from dotenv import load_dotenv
+from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
 
-COLLECTION_NAME = "maternal_health"
-BASE_DIR = Path(__file__).resolve().parent
-BOOK_PATH = BASE_DIR / "health_book.txt"
-VECTOR_DB_PATH = BASE_DIR / "vectordb"
-FALLBACK_JSON_PATH = VECTOR_DB_PATH / "chunks_fallback.json"
+load_dotenv()
 
-
-def split_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> list[str]:
-    chunks: list[str] = []
+def manual_split_text(text, chunk_size=1000, chunk_overlap=100):
+    chunks = []
     start = 0
-    text_len = len(text)
-
-    while start < text_len:
-        end = min(start + chunk_size, text_len)
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= text_len:
-            break
-        start = max(0, end - overlap)
-
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start += (chunk_size - chunk_overlap)
     return chunks
 
+def ingest_docs(file_path: str, persist_directory: str = "vectordb"):
+    """Loads a document and stores it in ChromaDB using FastEmbed."""
+    print(f"Loading document: {file_path}")
+    
+    with open(file_path, 'r', encoding='utf-8') as f:
+        text = f.read()
+    
+    # Manual splitting to avoid LangChain's torch-dependent splitters
+    chunks = manual_split_text(text)
+    docs = [Document(page_content=chunk, metadata={"source": file_path}) for chunk in chunks]
+    print(f"Split into {len(docs)} chunks.")
 
-def ingest() -> None:
-    VECTOR_DB_PATH.mkdir(parents=True, exist_ok=True)
-
-    if not BOOK_PATH.exists():
-        raise FileNotFoundError(f"Knowledge file missing: {BOOK_PATH}")
-
-    raw_text = BOOK_PATH.read_text(encoding="utf-8")
-    chunks = split_text(raw_text, chunk_size=1000, overlap=100)
-
-    if not chunks:
-        raise ValueError("No chunks generated from health_book.txt")
-
-    try:
-        import chromadb
-
-        client = chromadb.PersistentClient(path=str(VECTOR_DB_PATH))
-
-        try:
-            client.delete_collection(COLLECTION_NAME)
-        except Exception:
-            pass
-
-        collection = client.get_or_create_collection(COLLECTION_NAME)
-
-        ids = [f"chunk_{i}" for i in range(len(chunks))]
-        metadatas = [{"source": "health_book", "chunk_index": i} for i in range(len(chunks))]
-        collection.add(ids=ids, documents=chunks, metadatas=metadatas)
-
-        test = collection.query(query_texts=["pregnancy warning signs"], n_results=3)
-        retrieved = len(test.get("documents", [[]])[0]) if test else 0
-
-        print(f"Ingest complete. Chunks stored: {len(chunks)}")
-        print(f"Retrieval validation docs returned: {retrieved}")
-    except Exception as err:
-        payload = {
-            "collection": COLLECTION_NAME,
-            "chunks_count": len(chunks),
-            "chunks": chunks,
-            "error": str(err),
-            "note": "ChromaDB unavailable, fallback chunks saved for non-crashing mode.",
-        }
-        FALLBACK_JSON_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        print("ChromaDB unavailable. Fallback chunk file generated.")
-        print(f"Fallback file: {FALLBACK_JSON_PATH}")
-
+    # Using FastEmbed - Very reliable locally and doesn't require Torch
+    embeddings = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+    
+    print("Creating vector database...")
+    if os.path.exists(persist_directory):
+        print(f"Updating existing database at {persist_directory}...")
+        vectordb = Chroma(
+            persist_directory=persist_directory,
+            embedding_function=embeddings,
+            collection_name="pregnancy_docs"
+        )
+        vectordb.add_documents(docs)
+    else:
+        print(f"Creating new database at {persist_directory}...")
+        vectordb = Chroma.from_documents(
+            documents=docs,
+            embedding=embeddings,
+            persist_directory=persist_directory,
+            collection_name="pregnancy_docs"
+        )
+    print(f"Vector DB created and persisted at {persist_directory}")
+    return vectordb
 
 if __name__ == "__main__":
-    ingest()
+    sample_file = "health_book.txt"
+    if os.path.exists(sample_file):
+        ingest_docs(sample_file)
+    else:
+        print(f"File {sample_file} not found.")

@@ -35,6 +35,7 @@ import Auth from './Auth';
 import Dashboard from './Dashboard';
 
 const HERO_IMAGE = 'https://clipart-library.com/2024/pregnant-woman-cartoon/pregnant-woman-cartoon-1.jpg';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const Navbar = ({ onAuthClick, user, onLogout, onContactClick, contactLoading, setView, currentView }) => {
   return (
@@ -447,7 +448,7 @@ const VoiceInterface = ({ user }) => {
 
     try {
       setInteractionMode('PROCESSING');
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ask`, {
+      const res = await fetch(`${API_BASE}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -614,7 +615,7 @@ const VoiceInterface = ({ user }) => {
       setDetectedLang(langCode);
       setTranscript(`You: "${userText}"`);
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ask`, {
+      const res = await fetch(`${API_BASE}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1103,7 +1104,7 @@ const ContactModal = ({ onClose, onProceed, loading, user, selectedLanguage }) =
     setSupportInput('');
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ask`, {
+      const res = await fetch(`${API_BASE}/api/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1397,7 +1398,7 @@ function App() {
   const handleTriggerCall = async () => {
     setContactLoading(true);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/voice/trigger`, {
+      const response = await fetch(`${API_BASE}/api/voice/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });

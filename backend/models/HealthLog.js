@@ -1,184 +1,82 @@
-import mongoose from 'mongoose';
+const mongoose = require('mongoose');
 
-/**
- * Interaction Schema (Nested)
- * Represents one conversation turn in a session
- */
-const interactionSchema = new mongoose.Schema(
+const symptomEntrySchema = new mongoose.Schema(
   {
-    interactionId: {
+    name: { type: String, required: true },
+    reported_time: { type: String, default: '' },
+    status: {
       type: String,
-      required: true,
-      unique: true,
-      index: true,
-    },
-    timestamp: {
-      type: Date,
-      required: true,
-      default: Date.now,
-    },
-    source: {
-      type: String,
-      enum: ['website_text', 'website_voice', 'voice_call', 'support_chat'],
-      required: true,
-    },
-    language: {
-      detected: String,
-      requested: String,
-      response: String,
-    },
-    userInput: {
-      nativeText: String,
-      englishText: String,
-      rawTranscript: String,
-    },
-    aiOutput: {
-      englishText: String,
-      nativeText: String,
-      model: String,
-      retrievalUsed: Boolean,
-      retrievedSourcesCount: Number,
-    },
-    clinical: {
-      symptoms: [
-        {
-          name: String,
-          status: {
-            type: String,
-            enum: ['active', 'relieved', 'recurring', 'unknown'],
-          },
-          reportedTime: String,
-        },
-      ],
-      medications: [
-        {
-          name: String,
-          taken: Boolean,
-          takenTime: String,
-          effectNoted: String,
-        },
-      ],
-      reliefNoted: Boolean,
-      reliefDetails: String,
-      fetalMovementStatus: {
-        type: String,
-        enum: ['yes', 'no', 'unknown'],
-      },
-      severityScore: {
-        type: Number,
-        min: 0,
-        max: 10,
-      },
-      aiSummary: String,
-    },
-    meta: {
-      channelSessionId: String,
-      twilioCallSid: String,
-      twilioRecordingSid: String,
-      processingStatus: {
-        type: String,
-        enum: ['success', 'partial', 'failed'],
-        default: 'success',
-      },
-      errorMessage: String,
+      enum: ['active', 'relieved', 'recurring'],
+      default: 'active',
     },
   },
-  { _id: true }
+  { _id: false }
 );
 
-/**
- * GeneratedSummary Schema (Nested)
- * Represents AI-generated periodic summary of interactions
- */
-const generatedSummarySchema = new mongoose.Schema(
+const medicationEntrySchema = new mongoose.Schema(
   {
-    summaryId: {
-      type: String,
-      required: true,
-      unique: true,
-      index: true,
-    },
-    type: {
-      type: String,
-      enum: ['daily', 'weekly', 'monthly'],
-      required: true,
-    },
-    periodStart: Date,
-    periodEnd: Date,
-    generatedAt: {
-      type: Date,
-      default: Date.now,
-    },
-    totalInteractions: Number,
-    avgSeverity: Number,
-    summaryEnglish: String,
-    summaryNative: String,
-    symptomsTimeline: String,
-    medicationsTimeline: String,
-    doctorNotes: String,
+    name: { type: String, required: true },
+    taken: { type: Boolean, default: false },
+    taken_time: { type: String, default: '' },
+    effect_noted: { type: String, default: '' },
   },
-  { _id: true }
+  { _id: false }
 );
 
-/**
- * HealthLog Schema (Main)
- * 
- * Normalized design:
- * - One document per patient/user
- * - Contains full interaction history
- * - Contains generated summaries
- * - Single unique identity: phoneNumber > email > userId
- */
-const healthLogSchema = new mongoose.Schema(
-  {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      sparse: true,
-    },
-    name: String,
-    phoneNumber: {
-      type: String,
-      sparse: true,
-      index: true,
-    },
-    email: {
-      type: String,
-      sparse: true,
-      index: true,
-      lowercase: true,
-    },
-    preferredLanguage: {
-      type: String,
-      default: 'hi-IN',
-    },
-    history: [interactionSchema],
-    summaries: [generatedSummarySchema],
+const interactionSchema = new mongoose.Schema({
+  timestamp: { type: Date, default: Date.now },
+  user_message_native: { type: String, default: '' },
+  user_message_english: { type: String, default: '' },
+  rag_reply_native: { type: String, default: '' },
+  rag_reply_english: { type: String, default: '' },
+  symptoms: { type: [symptomEntrySchema], default: [] },
+  medications: { type: [medicationEntrySchema], default: [] },
+  relief_noted: { type: Boolean, default: false },
+  relief_details: { type: String, default: '' },
+  fetal_movement_status: {
+    type: String,
+    enum: ['Yes', 'No', 'Invalid'],
+    default: 'No',
   },
-  {
-    timestamps: true,
-  }
-);
+  severity_score: { type: Number, default: 0 },
+  ai_summary: { type: String, default: '' },
+});
 
-/**
- * Compound index for unique identity lookups
- * Priority: phoneNumber > email > userId
- */
-healthLogSchema.index({ phoneNumber: 1, email: 1, userId: 1 }, { sparse: true });
+const summarySchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['daily', 'weekly', 'monthly'],
+    required: true,
+  },
+  period_start: { type: Date, required: true },
+  period_end: { type: Date, required: true },
+  generated_at: { type: Date, default: Date.now },
+  summary_english: { type: String, default: '' },
+  summary_native: { type: String, default: '' },
+  total_interactions: { type: Number, default: 0 },
+  symptoms_timeline: { type: String, default: '' },
+  medications_timeline: { type: String, default: '' },
+  avg_severity: { type: Number, default: 0 },
+  doctor_notes: { type: String, default: '' },
+});
 
-/**
- * Pre-validation hook: Ensure at least one stable identifier
- */
-healthLogSchema.pre('validate', function (next) {
-  if (!this.phoneNumber && !this.email && !this.userId) {
-    this.invalidate(
-      'phoneNumber',
-      'At least one of phoneNumber, email, or userId is required'
-    );
-  }
+const healthLogSchema = new mongoose.Schema({
+  phone_number: {
+    type: String,
+    required: true,
+    unique: true,
+    index: true,
+  },
+  user_email: { type: String, default: '' },
+  history: { type: [interactionSchema], default: [] },
+  summaries: { type: [summarySchema], default: [] },
+  created_at: { type: Date, default: Date.now },
+  updated_at: { type: Date, default: Date.now },
+});
+
+healthLogSchema.pre('save', function onSave(next) {
+  this.updated_at = new Date();
   next();
 });
 
-const HealthLog = mongoose.model('HealthLog', healthLogSchema);
-
-export default HealthLog;
+module.exports = mongoose.model('HealthLog', healthLogSchema);
