@@ -98,7 +98,7 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
     };
 
 
-    const card = { background: 'white', padding: '2rem', borderRadius: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.04)', border: '1px solid #f1f5f9' };
+    const card = { background: 'rgba(255,255,255,0.92)', padding: '2rem', borderRadius: '24px', boxShadow: '0 12px 34px rgba(124,58,82,0.1)', border: '1px solid rgba(177, 36, 79, 0.1)', backdropFilter: 'blur(6px)' };
     const badge = (color) => ({ display: 'inline-block', padding: '0.3rem 0.8rem', borderRadius: '50px', fontSize: '0.75rem', fontWeight: '700', background: color + '15', color });
 
     if (loading) return (
@@ -114,7 +114,7 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
     const statsData = dashData?.stats || {};
 
     return (
-        <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ padding: '100px 0', minHeight: '100vh', background: '#f8fafc' }}>
+        <Motion.div className="dashboard-shell" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ padding: '100px 0', minHeight: '100vh' }}>
             <div className="container">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
                     <div>
@@ -136,7 +136,7 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
                         { key: 'doctor', label: 'Doctor Summary', icon: <Stethoscope size={16} /> },
                         { key: 'family', label: 'Family Summary', icon: <UsersIcon size={16} /> }
                     ].map(tab => (
-                        <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
+                        <button className="dashboard-tab" key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
                             flex: 1, padding: '0.8rem', border: 'none', borderRadius: '12px', cursor: 'pointer', fontWeight: '700', fontSize: '0.9rem',
                             background: activeTab === tab.key ? 'white' : 'transparent',
                             color: activeTab === tab.key ? 'var(--primary)' : '#64748b',

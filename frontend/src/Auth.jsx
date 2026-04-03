@@ -157,10 +157,10 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                     maxWidth: '480px',
                     borderRadius: '40px',
                     padding: '3rem',
-                    boxShadow: '0 25px 50px -12px rgba(176, 24, 84, 0.25)',
+                    boxShadow: '0 28px 60px -16px rgba(109, 36, 69, 0.28)',
                     position: 'relative',
                     overflow: 'hidden',
-                    border: '1px solid rgba(255, 255, 255, 0.5)'
+                    border: '1px solid rgba(177, 36, 79, 0.14)'
                 }}
             >
                 <button
@@ -203,7 +203,7 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                                     <div style={{ background: 'var(--primary)', padding: '0.6rem', borderRadius: '15px' }}>
                                         <Heart color="white" size={32} fill="white" />
                                     </div>
-                                    <span style={{ fontSize: '2.2rem', fontWeight: '800', color: 'var(--primary)', fontFamily: 'Outfit', letterSpacing: '-0.02em' }}>Janani</span>
+                                    <span style={{ fontSize: '2.2rem', fontWeight: '800', color: 'var(--primary)', fontFamily: 'Sora', letterSpacing: '-0.02em' }}>Janani</span>
                                 </motion.div>
                                 <h2 style={{ fontSize: '1.6rem', fontWeight: '700', color: 'var(--text-dark)', marginBottom: '0.5rem' }}>
                                     {isLogin ? 'Welcome Back' : 'Get Started'}
@@ -213,9 +213,9 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                                 </p>
                             </div>
 
-                            <div style={{
+                                <div style={{
                                 display: 'flex',
-                                background: '#f8f1f4',
+                                    background: '#fff4f2',
                                 borderRadius: '20px',
                                 padding: '0.4rem',
                                 marginBottom: '2.5rem',
@@ -272,11 +272,11 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                                                 width: '100%',
                                                 padding: '1.1rem 1.1rem 1.1rem 3.5rem',
                                                 borderRadius: '18px',
-                                                border: '2px solid #f1f5f9',
+                                                border: '2px solid #fde5e2',
                                                 outline: 'none',
                                                 fontSize: '1rem',
                                                 transition: 'all 0.3s',
-                                                background: '#f8fafc'
+                                                background: '#fffdfc'
                                             }}
                                         />
                                     </div>
@@ -296,10 +296,10 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                                                 width: '100%',
                                                 padding: '1.1rem 1.1rem 1.1rem 3.5rem',
                                                 borderRadius: '18px',
-                                                border: '2px solid #f1f5f9',
+                                                border: '2px solid #fde5e2',
                                                 outline: 'none',
                                                 fontSize: '1rem',
-                                                background: '#f8fafc'
+                                                background: '#fffdfc'
                                             }}
                                         />
                                     </div>
@@ -317,10 +317,10 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                                                 width: '100%',
                                                 padding: '1.1rem 1.1rem 1.1rem 3.5rem',
                                                 borderRadius: '18px',
-                                                border: '2px solid #f1f5f9',
+                                                border: '2px solid #fde5e2',
                                                 outline: 'none',
                                                 fontSize: '1rem',
-                                                background: '#f8fafc'
+                                                background: '#fffdfc'
                                             }}
                                         />
                                     </div>
@@ -339,10 +339,10 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                                             width: '100%',
                                             padding: '1.1rem 1.1rem 1.1rem 3.5rem',
                                             borderRadius: '18px',
-                                            border: '2px solid #f1f5f9',
+                                            border: '2px solid #fde5e2',
                                             outline: 'none',
                                             fontSize: '1rem',
-                                            background: '#f8fafc'
+                                            background: '#fffdfc'
                                         }}
                                     />
                                 </div>
@@ -361,10 +361,10 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                                                 width: '100%',
                                                 padding: '1.1rem 1.1rem 1.1rem 3.5rem',
                                                 borderRadius: '18px',
-                                                border: '2px solid #f1f5f9',
+                                                border: '2px solid #fde5e2',
                                                 outline: 'none',
                                                 fontSize: '1rem',
-                                                background: '#f8fafc'
+                                                background: '#fffdfc'
                                             }}
                                         />
                                     </div>
@@ -482,10 +482,10 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                                             width: '100%',
                                             padding: '1.1rem',
                                             borderRadius: '18px',
-                                            border: '2px solid #f1f5f9',
+                                            border: '2px solid #fde5e2',
                                             outline: 'none',
                                             fontSize: '1rem',
-                                            background: '#f8fafc',
+                                            background: '#fffdfc',
                                             minHeight: '80px',
                                             resize: 'none',
                                             fontFamily: 'inherit'
@@ -504,10 +504,10 @@ const Auth = ({ onClose, onAuthSuccess }) => {
                                             width: '100%',
                                             padding: '1.1rem',
                                             borderRadius: '18px',
-                                            border: '2px solid #f1f5f9',
+                                            border: '2px solid #fde5e2',
                                             outline: 'none',
                                             fontSize: '1rem',
-                                            background: '#f8fafc',
+                                            background: '#fffdfc',
                                             minHeight: '80px',
                                             resize: 'none',
                                             fontFamily: 'inherit'

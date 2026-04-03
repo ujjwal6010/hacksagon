@@ -40,16 +40,17 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 const Navbar = ({ onAuthClick, user, onLogout, onContactClick, contactLoading, setView, currentView }) => {
   return (
     <nav className="glass-nav">
-      <div className="container py-4 flex justify-between items-center" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+      <div className="container nav-inner">
         <ScrollLink
           to="home"
           smooth={true}
           duration={500}
+          className="nav-brand"
           style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
         >
-          <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--primary)', fontFamily: 'Outfit' }}>Janani</span>
+          <span style={{ fontSize: '1.62rem', fontWeight: '800', color: 'var(--primary)', fontFamily: 'Sora', letterSpacing: '0.02em' }}>Janani</span>
         </ScrollLink>
-        <div className="nav-links" style={{ display: 'flex', gap: '2rem' }}>
+        <div className="nav-links" style={{ display: 'flex', gap: '1.8rem' }}>
           {['Home', 'Care', 'Mission'].map((item) => (
             <ScrollLink
               key={item}
@@ -58,13 +59,14 @@ const Navbar = ({ onAuthClick, user, onLogout, onContactClick, contactLoading, s
               duration={500}
               offset={-70}
               onClick={() => setView('landing')}
+              className={`nav-link ${currentView === 'landing' ? 'nav-link-active' : ''}`}
               style={{
                 cursor: 'pointer',
-                fontWeight: '500',
+                fontWeight: '600',
+                fontSize: '1rem',
                 color: currentView === 'landing' ? 'var(--text-dark)' : '#64748b',
-                transition: 'color 0.3s'
+                transition: 'color 0.25s ease'
               }}
-              className="hover-text-primary"
             >
               {item}
             </ScrollLink>
@@ -72,49 +74,46 @@ const Navbar = ({ onAuthClick, user, onLogout, onContactClick, contactLoading, s
           {user && (
             <button
               onClick={() => setView('dashboard')}
+              className={`nav-link ${currentView === 'dashboard' ? 'nav-link-active' : ''}`}
               style={{
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
-                fontWeight: '500',
+                fontWeight: '600',
+                fontSize: '1rem',
                 color: currentView === 'dashboard' ? 'var(--primary)' : '#64748b',
                 fontFamily: 'inherit',
-                fontSize: 'inherit',
-                transition: 'color 0.3s'
+                transition: 'color 0.25s ease'
               }}
-              className="hover-text-primary"
             >
               Dashboard
             </button>
           )}
         </div>
-        <div className="nav-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div className="nav-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
           <button
             onClick={onContactClick}
             disabled={contactLoading}
-            className="btn-primary nav-contact-btn"
+            className="nav-btn-outline nav-contact-btn"
             style={{
-              padding: '0.5rem 1.2rem',
-              background: 'transparent',
-              border: '2px solid var(--primary)',
-              color: 'var(--primary)',
+              padding: '0.58rem 1.3rem',
               opacity: contactLoading ? 0.7 : 1
             }}
           >
             {contactLoading ? 'Calling...' : 'Contact'}
           </button>
           {user ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div className="nav-user-group" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <div className="nav-user-name" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--primary)', fontWeight: '600' }}>
                 <UserIcon size={18} />
                 <span>{user.name}</span>
               </div>
-              <button onClick={onLogout} className="btn-primary" style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button onClick={onLogout} className="nav-btn-solid" style={{ padding: '0.58rem 1.2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <LogOut size={16} /> Logout
               </button>
             </div>
           ) : (
-            <button onClick={onAuthClick} className="btn-primary" style={{ padding: '0.5rem 1.2rem' }}>Login</button>
+            <button onClick={onAuthClick} className="nav-btn-solid" style={{ padding: '0.58rem 1.2rem' }}>Login</button>
           )}
         </div>
       </div>
@@ -168,7 +167,7 @@ const Hero = ({ onAuthClick, user, setView }) => {
           ))}
         </AnimatePresence>
       </div>
-      <section className="container" style={{ paddingTop: '100px', cursor: 'pointer' }}>
+      <section className="container" style={{ paddingTop: '120px', cursor: 'pointer' }}>
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -184,18 +183,18 @@ const Hero = ({ onAuthClick, user, setView }) => {
           >
             <Motion.h1
               className="gradient-text"
-              style={{ fontSize: '5.5rem', lineHeight: '1.1', marginBottom: '1.5rem', fontWeight: '800' }}
+              style={{ fontSize: 'clamp(3rem, 9vw, 5.7rem)', lineHeight: '1.05', marginBottom: '1.2rem', fontWeight: '800' }}
               initial={{ scale: 0.9 }}
               animate={{ scale: 1 }}
               transition={{ duration: 0.5 }}
             >
               Janani
             </Motion.h1>
-            <h2 style={{ fontSize: '2.2rem', color: 'var(--text-dark)', marginBottom: '2rem', fontWeight: '600', lineHeight: '1.3' }}>
+            <h2 style={{ fontSize: 'clamp(1.45rem, 3vw, 2.25rem)', color: 'var(--text-dark)', marginBottom: '1.6rem', fontWeight: '700', lineHeight: '1.28' }}>
               AI-Powered Multilingual Voice Assistant for <span style={{ color: 'var(--primary)' }}>Rural Maternal Care</span>
             </h2>
 
-            <p style={{ fontSize: '1.25rem', color: 'var(--text-light)', marginBottom: '3rem', maxWidth: '550px' }}>
+            <p style={{ fontSize: '1.08rem', color: 'var(--text-light)', marginBottom: '2.5rem', maxWidth: '560px' }}>
               Empowering Rural Women with RAG-Based Medical Intelligence.
               Providing life-saving prenatal care insights through simple, natural voice conversations.
             </p>
@@ -256,6 +255,7 @@ const Hero = ({ onAuthClick, user, setView }) => {
               opacity: 0.6
             }}></div>
             <img
+              className="hero-image-mask"
               src={HERO_IMAGE}
               alt="Maternal Health"
               style={{
@@ -264,6 +264,7 @@ const Hero = ({ onAuthClick, user, setView }) => {
                 height: '450px',
                 objectFit: 'cover',
                 borderRadius: '50%',
+                border: '6px solid rgba(255, 255, 255, 0.9)'
               }}
               onError={(e) => {
                 e.target.src = 'https://images.unsplash.com/photo-1559832306-27a0278d99a7?auto=format&fit=crop&q=80&w=1000';
@@ -327,14 +328,14 @@ const FeatureCard = ({ icon: Icon, title, desc, delay }) => (
     whileInView={{ opacity: 1, y: 0 }}
     viewport={{ once: true }}
     transition={{ delay, duration: 0.6 }}
-    className="hover-lift"
+    className="hover-lift surface-card"
     style={{
       background: 'white',
       padding: '2.5rem',
       borderRadius: '24px',
       textAlign: 'left',
       boxShadow: 'var(--shadow-md)',
-      border: '1px solid #f0f0f0'
+      border: '1px solid rgba(177, 36, 79, 0.1)'
     }}
   >
     <div style={{
@@ -693,13 +694,14 @@ const VoiceInterface = ({ user }) => {
 
   return (
     <Motion.div
+      className="voice-shell"
       initial={{ opacity: 0, y: 30 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
       style={{
         marginTop: '4rem',
         padding: '3rem',
-        background: 'linear-gradient(135deg, #fff 0%, #fef7f9 100%)',
+        background: 'linear-gradient(135deg, #fff 0%, #fff8f6 100%)',
         borderRadius: '30px',
         boxShadow: 'var(--shadow-lg)',
         border: '1px solid var(--accent)',
@@ -1042,7 +1044,7 @@ const MainContent = ({ assistantRef, user }) => {
             </p>
           </div>
 
-          <div style={{
+          <div className="mission-grid" style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
             gap: '2.5rem'
@@ -1273,13 +1275,13 @@ const ContactModal = ({ onClose, onProceed, loading, user, selectedLanguage }) =
 };
 
 const Footer = ({ user }) => (
-  <footer style={{ background: '#0f172a', color: 'white', padding: '4rem 0' }}>
+  <footer className="footer-surface" style={{ color: 'white', padding: '4rem 0' }}>
     <div className="container">
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '3rem', marginBottom: '3rem' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
             <Heart color="white" size={24} fill="white" />
-            <span style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Janani</span>
+            <span style={{ fontSize: '1.5rem', fontWeight: 'bold', fontFamily: 'Sora' }}>Janani</span>
           </div>
           <p style={{ opacity: 0.8, fontSize: '0.9rem' }}>
             Empowering Rural Women with RAG-Based Medical Intelligence
