@@ -1482,40 +1482,47 @@ function App() {
 
       <AnimatePresence>
         {toast && (
-          <Motion.div
-            initial={{ opacity: 0, y: -60 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -60 }}
-            transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+          <div
             style={{
               position: 'fixed',
               top: '80px',
               left: '50%',
               transform: 'translateX(-50%)',
               zIndex: 9999,
-              background: toast.type === 'error' ? '#fef2f2' : '#f0fdf4',
-              color: toast.type === 'error' ? '#dc2626' : '#16a34a',
-              border: `1px solid ${toast.type === 'error' ? '#fecaca' : '#bbf7d0'}`,
-              padding: '0.8rem 1.5rem',
-              borderRadius: '12px',
-              fontWeight: '600',
-              fontSize: '0.95rem',
-              boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
+              width: 'fit-content',
               maxWidth: '90vw'
             }}
           >
-            <span>{toast.type === 'error' ? '⚠' : '✓'}</span>
-            {toast.message}
-            <button
-              onClick={() => setToast(null)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', marginLeft: '0.5rem', fontSize: '1.1rem', color: 'inherit', opacity: 0.6 }}
+            <Motion.div
+              initial={{ opacity: 0, y: -60 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -60 }}
+              transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+              style={{
+                background: toast.type === 'error' ? '#fef2f2' : '#f0fdf4',
+                color: toast.type === 'error' ? '#dc2626' : '#16a34a',
+                border: `1px solid ${toast.type === 'error' ? '#fecaca' : '#bbf7d0'}`,
+                padding: '0.8rem 1.5rem',
+                borderRadius: '12px',
+                fontWeight: '600',
+                fontSize: '0.95rem',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                maxWidth: '90vw'
+              }}
             >
-              ×
-            </button>
-          </Motion.div>
+              <span>{toast.type === 'error' ? '⚠' : '✓'}</span>
+              {toast.message}
+              <button
+                onClick={() => setToast(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', marginLeft: '0.5rem', fontSize: '1.1rem', color: 'inherit', opacity: 0.6 }}
+              >
+                ×
+              </button>
+            </Motion.div>
+          </div>
         )}
       </AnimatePresence>
 
