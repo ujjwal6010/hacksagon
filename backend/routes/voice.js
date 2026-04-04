@@ -9,6 +9,11 @@ const HealthLog = require('../models/HealthLog');
 const router = express.Router();
 const processedRecordings = new Set();
 
+// Track per-call error counts to prevent infinite "System busy" loops
+const callErrorCounts = new Map();
+const callLastAudioUrl = new Map();
+const MAX_ERRORS_PER_CALL = 2;
+
 const {
   TWILIO_ACCOUNT_SID,
   TWILIO_AUTH_TOKEN,
@@ -135,36 +140,63 @@ async function queryPythonRag(englishQuery, userPhone) {
   return response.data.english_answer || response.data.localized_answer || 'Please consult your doctor for support.';
 }
 
-async function sarvamTTS(text, languageCode, outputPath) {
-  const targetLanguage = normalizeBulbulLanguage(languageCode);
-  const response = await axios.post(
-    'https://api.sarvam.ai/text-to-speech',
-    {
-      inputs: [text],
-      target_language_code: targetLanguage,
-      speaker: 'anushka',
-      pitch: 0,
-      pace: 1,
-      loudness: 1,
-      speech_sample_rate: 22050,
-      enable_preprocessing: true,
-      model: 'bulbul:v3',
-    },
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        'api-subscription-key': SARVAM_API_KEY,
-      },
-      timeout: 120000,
-    }
-  );
+function splitTextIntoChunks(text, maxLen = 490) {
+  if (text.length <= maxLen) return [text];
 
-  const audioBase64 = response.data?.audios?.[0];
-  if (!audioBase64) {
-    throw new Error('No audio output returned from TTS');
+  const chunks = [];
+  let remaining = text;
+
+  while (remaining.length > maxLen) {
+    let splitIdx = remaining.lastIndexOf('। ', maxLen);
+    if (splitIdx === -1) splitIdx = remaining.lastIndexOf('. ', maxLen);
+    if (splitIdx === -1) splitIdx = remaining.lastIndexOf(', ', maxLen);
+    if (splitIdx === -1) splitIdx = remaining.lastIndexOf(' ', maxLen);
+    if (splitIdx === -1) splitIdx = maxLen;
+
+    // Include the delimiter in the chunk
+    const chunk = remaining.slice(0, splitIdx + 1).trim();
+    if (chunk) chunks.push(chunk);
+    remaining = remaining.slice(splitIdx + 1).trim();
   }
 
-  fs.writeFileSync(outputPath, Buffer.from(audioBase64, 'base64'));
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
+async function sarvamTTS(text, languageCode, outputPath) {
+  const targetLanguage = normalizeBulbulLanguage(languageCode);
+  const chunks = splitTextIntoChunks(text);
+  const audioBuffers = [];
+
+  for (const chunk of chunks) {
+    const response = await axios.post(
+      'https://api.sarvam.ai/text-to-speech',
+      {
+        inputs: [chunk],
+        target_language_code: targetLanguage,
+        speaker: 'priya',
+        pace: 1,
+        speech_sample_rate: 22050,
+        enable_preprocessing: true,
+        model: 'bulbul:v3',
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'api-subscription-key': SARVAM_API_KEY,
+        },
+        timeout: 120000,
+      }
+    );
+
+    const audioBase64 = response.data?.audios?.[0];
+    if (!audioBase64) {
+      throw new Error('No audio output returned from TTS');
+    }
+    audioBuffers.push(Buffer.from(audioBase64, 'base64'));
+  }
+
+  fs.writeFileSync(outputPath, Buffer.concat(audioBuffers));
   return outputPath;
 }
 
@@ -246,6 +278,12 @@ router.post('/trigger', async (req, res) => {
 });
 
 router.post('/webhook', (req, res) => {
+  // Reset error counter for this call when entering the main webhook
+  const callSid = req.body.CallSid;
+  if (callSid) {
+    callErrorCounts.delete(callSid);
+  }
+
   const xml = voiceResponseXml((vr) => {
     vr.say(
       {
@@ -280,8 +318,8 @@ router.post('/webhook', (req, res) => {
   return res.send(xml);
 });
 
-router.post('/process-ai', async (req, res) => {
-  const { RecordingUrl, RecordingStatus, RecordingSid, From } = req.body;
+router.post('/process-ai', (req, res) => {
+  const { RecordingUrl, RecordingStatus, RecordingSid, CallSid, From } = req.body;
 
   if (RecordingStatus && RecordingStatus !== 'completed') {
     return res.status(200).send('');
@@ -300,38 +338,89 @@ router.post('/process-ai', async (req, res) => {
     return res.send(xml);
   }
 
+  // Mark recording immediately to avoid duplicate processing
+  if (RecordingSid) {
+    processedRecordings.add(RecordingSid);
+  }
+
+  // ── Respond INSTANTLY with a hold message so the caller isn't waiting in silence ──
+  const xml = voiceResponseXml((vr) => {
+    vr.say(
+      { language: 'hi-IN', voice: 'Polly.Aditi' },
+      'Ek second, main aapka jawab dhundh rahi hoon.'
+    );
+    // Keep the call alive with a long pause while background processing runs
+    vr.pause({ length: 30 });
+    // Safety fallback — if processing somehow takes >30s, loop back
+    vr.say({ language: 'hi-IN', voice: 'Polly.Aditi' }, 'Abhi thoda aur samay lagega.');
+    vr.pause({ length: 30 });
+    vr.redirect('/api/voice/webhook');
+  });
+
+  res.type('text/xml');
+  res.send(xml);
+
+  // ── Fire-and-forget: process the pipeline in the background ──
+  processVoicePipeline({ RecordingUrl, CallSid, From }).catch((err) => {
+    console.error(`[voice] [${CallSid}] Background pipeline fatal:`, err.message);
+  });
+});
+
+async function processVoicePipeline({ RecordingUrl, CallSid, From }) {
   const timestamp = Date.now();
   const tmpDir = path.join(__dirname, '..', 'public', 'tts');
   const inputPath = path.join(tmpDir, `input_${timestamp}.wav`);
   const outputPath = path.join(tmpDir, `reply_${timestamp}.wav`);
 
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+
+  let pipelineStep = 'init';
+
   try {
+    pipelineStep = 'download-recording';
+    console.log(`[voice] [${CallSid}] Downloading recording: ${RecordingUrl}`);
     await downloadTwilioRecordingWithRetry(RecordingUrl, inputPath);
 
+    pipelineStep = 'sarvam-stt';
+    console.log(`[voice] [${CallSid}] Running Sarvam STT...`);
     const stt = await sarvamSTT(inputPath);
     const userNativeText = (stt.text || '').trim();
     const detectedLanguage = stt.languageCode || 'hi-IN';
+    console.log(`[voice] [${CallSid}] STT result: lang=${detectedLanguage}, text="${userNativeText.slice(0, 80)}"`);
 
     if (!userNativeText) {
-      const xml = voiceResponseXml((vr) => {
-        vr.say({ language: 'hi-IN', voice: 'Polly.Aditi' }, 'Aapki awaaz saaf nahi mili. Kripya dubara bolkar hash key dabayein.');
-        vr.redirect('/api/voice/webhook');
+      // No speech detected — redirect call back to main menu
+      const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+      await client.calls(CallSid).update({
+        twiml: voiceResponseXml((vr) => {
+          vr.say({ language: 'hi-IN', voice: 'Polly.Aditi' }, 'Aapki awaaz saaf nahi mili. Kripya dubara bolein.');
+          vr.redirect(`${WEBHOOK_BASE_URL}/api/voice/webhook`);
+        }),
       });
-
-      if (RecordingSid) {
-        processedRecordings.add(RecordingSid);
-      }
-
-      res.type('text/xml');
-      return res.status(200).send(xml);
+      return;
     }
 
+    pipelineStep = 'translate-to-english';
+    console.log(`[voice] [${CallSid}] Translating to English...`);
     const userEnglishText = await sarvamTranslate(userNativeText, detectedLanguage, 'en-IN');
+    console.log(`[voice] [${CallSid}] English: "${userEnglishText.slice(0, 80)}"`);
+
+    pipelineStep = 'python-rag';
+    console.log(`[voice] [${CallSid}] Querying Python RAG...`);
     const aiEnglishReply = await queryPythonRag(userEnglishText, From || null);
+    console.log(`[voice] [${CallSid}] RAG reply: "${aiEnglishReply.slice(0, 80)}"`);
+
+    pipelineStep = 'translate-to-native';
+    console.log(`[voice] [${CallSid}] Translating reply to ${detectedLanguage}...`);
     const aiNativeReply = await sarvamTranslate(aiEnglishReply, 'en-IN', detectedLanguage);
 
+    pipelineStep = 'sarvam-tts';
+    console.log(`[voice] [${CallSid}] Running Sarvam TTS...`);
     await sarvamTTS(aiNativeReply, detectedLanguage, outputPath);
 
+    pipelineStep = 'save-interaction';
     await saveVoiceInteraction({
       from: From,
       userMessageNative: userNativeText,
@@ -340,33 +429,163 @@ router.post('/process-ai', async (req, res) => {
       aiReplyEnglish: aiEnglishReply,
     });
 
-    const publicAudioUrl = `${WEBHOOK_BASE_URL}/public/tts/${path.basename(outputPath)}`;
-
-    const xml = voiceResponseXml((vr) => {
-      vr.play(publicAudioUrl);
-      vr.pause({ length: 1 });
-      vr.redirect('/api/voice/webhook');
-    });
-
-    if (RecordingSid) {
-      processedRecordings.add(RecordingSid);
+    // Reset error count on success
+    if (CallSid) {
+      callErrorCounts.delete(CallSid);
     }
 
-    res.type('text/xml');
-    return res.send(xml);
-  } catch (error) {
-    const xml = voiceResponseXml((vr) => {
-      vr.say({ language: 'hi-IN', voice: 'Polly.Aditi' }, 'System busy hai. Kripya thodi der baad dobara try karein.');
-      vr.redirect('/api/voice/webhook');
+    const publicAudioUrl = `${WEBHOOK_BASE_URL}/public/tts/${path.basename(outputPath)}`;
+
+    // Store the audio URL so the caller can replay it
+    callLastAudioUrl.set(CallSid, publicAudioUrl);
+
+    // ── Interrupt the hold message and play the AI response + menu ──
+    const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+    await client.calls(CallSid).update({
+      twiml: voiceResponseXml((vr) => {
+        vr.play(publicAudioUrl);
+        vr.pause({ length: 1 });
+        const gather = vr.gather({
+          numDigits: 1,
+          action: `${WEBHOOK_BASE_URL}/api/voice/post-reply`,
+          method: 'POST',
+          timeout: 5,
+        });
+        gather.say(
+          { language: 'hi-IN', voice: 'Polly.Aditi' },
+          'Jawab dobara sunne ke liye 1 dabayein. Naya sawaal poochne ke liye 2 dabayein.'
+        );
+        // If no digit pressed, default to new query
+        vr.redirect(`${WEBHOOK_BASE_URL}/api/voice/new-query`);
+      }),
     });
 
-    res.type('text/xml');
-    return res.status(200).send(xml);
+    console.log(`[voice] [${CallSid}] ✅ Pipeline complete, playing TTS response`);
+  } catch (error) {
+    const errMsg = error?.response?.data
+      ? `HTTP ${error.response.status}: ${JSON.stringify(error.response.data).slice(0, 200)}`
+      : error.message;
+    console.error(`[voice] [${CallSid}] ❌ PIPELINE FAILED at step "${pipelineStep}": ${errMsg}`);
+
+    const errorCount = (callErrorCounts.get(CallSid) || 0) + 1;
+    callErrorCounts.set(CallSid, errorCount);
+
+    try {
+      const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+
+      if (errorCount >= MAX_ERRORS_PER_CALL) {
+        console.error(`[voice] [${CallSid}] ⛔ Max errors (${MAX_ERRORS_PER_CALL}) reached, hanging up`);
+        callErrorCounts.delete(CallSid);
+
+        await client.calls(CallSid).update({
+          twiml: voiceResponseXml((vr) => {
+            vr.say(
+              { language: 'hi-IN', voice: 'Polly.Aditi' },
+              'Maaf kijiye, hamara system abhi kaam nahi kar raha hai. Kripya kuch der baad dobara call karein. Dhanyavaad.'
+            );
+            vr.hangup();
+          }),
+        });
+      } else {
+        await client.calls(CallSid).update({
+          twiml: voiceResponseXml((vr) => {
+            vr.say(
+              { language: 'hi-IN', voice: 'Polly.Aditi' },
+              'System mein thodi samasya aa rahi hai. Kripya dobara apni baat bolein.'
+            );
+            vr.record({
+              action: `${WEBHOOK_BASE_URL}/api/voice/process-ai`,
+              method: 'POST',
+              finishOnKey: '#',
+              timeout: 6,
+              maxLength: 120,
+              playBeep: true,
+              transcribe: false,
+            });
+            vr.say({ language: 'hi-IN', voice: 'Polly.Aditi' }, 'Koi awaaz nahi mili.');
+            vr.hangup();
+          }),
+        });
+      }
+    } catch (updateErr) {
+      console.error(`[voice] [${CallSid}] Failed to update call after error:`, updateErr.message);
+    }
   } finally {
     if (fs.existsSync(inputPath)) {
       fs.unlinkSync(inputPath);
     }
   }
+}
+
+// ── Post-reply menu: press 1 to rehear, press 2 for new query ──
+router.post('/post-reply', (req, res) => {
+  const { Digits, CallSid } = req.body;
+
+  if (Digits === '1') {
+    // Replay the last response
+    const lastUrl = callLastAudioUrl.get(CallSid);
+    const xml = voiceResponseXml((vr) => {
+      if (lastUrl) {
+        vr.play(lastUrl);
+        vr.pause({ length: 1 });
+      } else {
+        vr.say({ language: 'hi-IN', voice: 'Polly.Aditi' }, 'Maaf kijiye, pichla jawab uplabdh nahi hai.');
+      }
+      const gather = vr.gather({
+        numDigits: 1,
+        action: `${WEBHOOK_BASE_URL}/api/voice/post-reply`,
+        method: 'POST',
+        timeout: 5,
+      });
+      gather.say(
+        { language: 'hi-IN', voice: 'Polly.Aditi' },
+        'Jawab dobara sunne ke liye 1 dabayein. Naya sawaal poochne ke liye 2 dabayein.'
+      );
+      vr.redirect(`${WEBHOOK_BASE_URL}/api/voice/new-query`);
+    });
+    res.type('text/xml');
+    return res.send(xml);
+  }
+
+  // Default (press 2 or anything else) → new query
+  const xml = voiceResponseXml((vr) => {
+    vr.redirect(`${WEBHOOK_BASE_URL}/api/voice/new-query`);
+  });
+  res.type('text/xml');
+  return res.send(xml);
 });
 
+// ── New query: skip the full greeting, go straight to recording ──
+router.post('/new-query', (req, res) => {
+  const xml = voiceResponseXml((vr) => {
+    vr.say(
+      { language: 'hi-IN', voice: 'Polly.Aditi' },
+      'Kripya apna sawaal bolein aur phir hash key dabayein.'
+    );
+    vr.record({
+      action: '/api/voice/process-ai',
+      method: 'POST',
+      finishOnKey: '#',
+      timeout: 6,
+      maxLength: 120,
+      playBeep: true,
+      transcribe: false,
+    });
+    vr.say(
+      { language: 'hi-IN', voice: 'Polly.Aditi' },
+      'Koi awaaz nahi mili. Kripya dobara try karein.'
+    );
+    vr.redirect('/api/voice/new-query');
+  });
+  res.type('text/xml');
+  return res.send(xml);
+});
+
+// Clean up stale tracking entries periodically (every 10 minutes)
+setInterval(() => {
+  callErrorCounts.clear();
+  callLastAudioUrl.clear();
+}, 10 * 60 * 1000);
+
 module.exports = router;
+
