@@ -1,40 +1,30 @@
-# Multi-stage Dockerfile for Janani Backend
+# ── Janani Backend: Node.js + Python in a single container ──
+FROM python:3.11-slim
 
-# Stage 1: Node.js API Layer
-FROM node:20-alpine AS node_builder
+# Install Node.js 20, FFmpeg, and curl
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ffmpeg && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY package*.json ./
-
-RUN npm install --production
-
-# Stage 2: Python AI Service
-FROM python:3.11-slim AS python_builder
-
-WORKDIR /app/python
-
-COPY requirements.txt .
-
+# ── Python dependencies ──
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Stage 3: Final Image
-FROM node:20-alpine
-
-RUN apk add --no-cache python3 curl
-
-WORKDIR /app
-
-# Copy Node dependencies from builder
-COPY --from=node_builder /app/node_modules ./node_modules
+# ── Node.js dependencies ──
 COPY package*.json ./
+RUN npm install --production
 
-# Copy Python runtime from builder
-COPY --from=python_builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-
-# Copy application code
+# ── Application code ──
 COPY . .
 
+# Create TTS audio directory
+RUN mkdir -p public/tts
+
+# Make startup script executable
 RUN chmod +x start.sh
 
 EXPOSE 5000 8000

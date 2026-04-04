@@ -1,0 +1,8 @@
+node_modules
+.env
+public/tts
+python/vectordb
+python/__pycache__
+__pycache__
+*.pyc
+.git

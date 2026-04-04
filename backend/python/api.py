@@ -239,6 +239,12 @@ async def save_to_mongodb(request: QueryRequest, eng_query: str, eng_answer: str
     print(f"💾 Saved for {user_identifier} | symptoms: {len(symptom_entries)}")
 
 
+# ─── /health Endpoint ────────────────────────────────────────────────────────
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "python-rag", "ready": service is not None}
+
+
 # ─── /ask Endpoint ───────────────────────────────────────────────────────────
 @app.post("/ask")
 async def ask(request: QueryRequest):
