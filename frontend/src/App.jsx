@@ -167,7 +167,7 @@ const Hero = ({ onAuthClick, user, setView }) => {
           ))}
         </AnimatePresence>
       </div>
-      <section className="container" style={{ paddingTop: '120px', cursor: 'pointer' }}>
+      <section className="container" style={{ paddingTop: '1px', cursor: 'pointer' }}>
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -176,11 +176,13 @@ const Hero = ({ onAuthClick, user, setView }) => {
           flexWrap: 'wrap'
         }}>
           <Motion.div
+            className="hero-copy-shell"
             initial={{ opacity: 0, x: -50 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.8 }}
-            style={{ flex: '1', minWidth: '300px', textAlign: 'left' }}
+            style={{ flex: '1', minWidth: '300px', textAlign: 'left', position: 'relative', isolation: 'isolate' }}
           >
+            <div className="hero-blob hero-blob-copy" aria-hidden="true" />
             <Motion.h1
               className="gradient-text"
               style={{ fontSize: 'clamp(3rem, 9vw, 5.7rem)', lineHeight: '1.05', marginBottom: '1.2rem', fontWeight: '800' }}
@@ -236,11 +238,13 @@ const Hero = ({ onAuthClick, user, setView }) => {
 
 
           <Motion.div
+            className="hero-art-shell"
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2, duration: 0.8 }}
-            style={{ flex: '1', minWidth: '300px', display: 'flex', justifyContent: 'center', position: 'relative' }}
+            style={{ flex: '1', minWidth: '300px', display: 'flex', justifyContent: 'center', position: 'relative', isolation: 'isolate' }}
           >
+            <div className="hero-blob hero-blob-art" aria-hidden="true" />
             <div style={{
               position: 'absolute',
               top: '50%',
@@ -255,7 +259,7 @@ const Hero = ({ onAuthClick, user, setView }) => {
               opacity: 0.6
             }}></div>
             <img
-              className="hero-image-mask"
+              className="hero-image-mask hero-illustration-float"
               src={HERO_IMAGE}
               alt="Maternal Health"
               style={{

@@ -1,0 +1,30 @@
+FRONTEND OVERVIEW
+
+HEADER / NAVBAR
+- Logo text: Janani
+- Navigation links: Home, Care, Mission, Dashboard
+- Action buttons: Contact, user name, Logout
+
+HERO SECTION
+- Main heading: Janani
+- Tagline: AI-powered multilingual voice assistant for rural maternal care
+- Supporting description: Empowering rural women with RAG-based medical intelligence and simple, natural voice conversations for prenatal care support.
+- Primary CTA: Go to Dashboard
+- Secondary CTA: Learn More
+- Illustration: Pregnant woman image displayed on the right side
+
+VISUAL STYLE
+- Color theme: Soft pink and healthcare-oriented tones
+- Typography: Clean, modern, bold heading style with readable body text
+- Buttons: Rounded buttons with gradient and outline treatments
+- Layout: Left-aligned text content with right-side illustration
+
+INTERACTIVE ELEMENTS
+- Navigation links for page sections and dashboard access
+- Action buttons for contact, login/logout, and dashboard access
+- Floating action button in the bottom-right corner
+
+GENERAL UX STRUCTURE
+- Clean landing page layout
+- Strong visual emphasis with minimal content
+- Clear presentation focused on readability and accessibility
