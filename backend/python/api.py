@@ -173,21 +173,44 @@ Return ONLY valid JSON (no markdown):
 # ─── MongoDB Save ────────────────────────────────────────────────────────────
 async def save_to_mongodb(request: QueryRequest, eng_query: str, eng_answer: str, native_answer: str, clinical: dict):
     user_identifier = request.user_phone or request.user_email or "anonymous"
-    filter_query = (
-        {"phone_number": request.user_phone} if request.user_phone
-        else {"user_email": request.user_email} if request.user_email
-        else {"phone_number": "anonymous"}
-    )
+
+    # Build symptoms in Mongoose-compatible format
+    symptom_entries = []
+    for s in clinical.get("symptoms", []):
+        if isinstance(s, str):
+            symptom_entries.append({"name": s, "status": "active", "reported_time": ""})
+        elif isinstance(s, dict):
+            symptom_entries.append({"name": s.get("name", "unknown"), "status": s.get("status", "active"), "reported_time": ""})
+
+    # Build medications in Mongoose-compatible format
+    med_entries = []
+    for m in clinical.get("medications", []):
+        if isinstance(m, str):
+            med_entries.append({"name": m, "taken": True, "taken_time": "", "effect_noted": ""})
+        elif isinstance(m, dict):
+            med_entries.append({"name": m.get("name", "unknown"), "taken": m.get("taken", True), "taken_time": "", "effect_noted": ""})
+
+    # Use email as fallback phone_number to avoid unique-index collisions
+    phone_for_db = request.user_phone or (f"email:{request.user_email}" if request.user_email else "anonymous")
+
+    if request.user_phone:
+        filter_query = {"phone_number": request.user_phone}
+    elif request.user_email:
+        # Check by email first, fallback to generated phone key
+        filter_query = {"$or": [{"user_email": request.user_email}, {"phone_number": phone_for_db}]}
+    else:
+        filter_query = {"phone_number": "anonymous"}
 
     interaction = {
         "timestamp": datetime.utcnow(),
-        "user_message": eng_query,
-        "ai_response": eng_answer,
+        "user_message_english": eng_query,
+        "rag_reply_english": eng_answer,
         "user_message_native": request.query,
-        "ai_response_native": native_answer,
-        "symptoms": clinical.get("symptoms", []),
-        "medications": clinical.get("medications", []),
+        "rag_reply_native": native_answer,
+        "symptoms": symptom_entries,
+        "medications": med_entries,
         "relief_noted": clinical.get("relief_noted", False),
+        "relief_details": clinical.get("relief_details", ""),
         "fetal_movement_status": clinical.get("fetal_movement", "Unknown"),
         "severity_score": clinical.get("severity", 5),
         "ai_summary": clinical.get("summary", ""),
@@ -197,15 +220,17 @@ async def save_to_mongodb(request: QueryRequest, eng_query: str, eng_answer: str
 
     update = {
         "$push": {"history": interaction},
-        "$set": {"updated_at": datetime.utcnow()},
+        "$set": {
+            "updated_at": datetime.utcnow(),
+            "user_email": request.user_email or ""
+        },
         "$setOnInsert": {
-            "phone_number": request.user_phone or "",
-            "user_email": request.user_email or "",
+            "phone_number": phone_for_db,
             "created_at": datetime.utcnow()
         }
     }
     await health_logs_collection.update_one(filter_query, update, upsert=True)
-    print(f"💾 Saved for {user_identifier} | symptoms: {len(clinical.get('symptoms', []))}")
+    print(f"💾 Saved for {user_identifier} | symptoms: {len(symptom_entries)}")
 
 
 # ─── /ask Endpoint ───────────────────────────────────────────────────────────

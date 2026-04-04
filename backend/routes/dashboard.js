@@ -4,9 +4,15 @@ const HealthLog = require('../models/HealthLog');
 const router = express.Router();
 
 async function findUserLog(identifier) {
+  // Try direct phone match
   let log = await HealthLog.findOne({ phone_number: identifier });
   if (!log) {
+    // Try email field
     log = await HealthLog.findOne({ user_email: identifier });
+  }
+  if (!log) {
+    // Try the email: prefix pattern (used by Python API for email-only users)
+    log = await HealthLog.findOne({ phone_number: `email:${identifier}` });
   }
   return log;
 }

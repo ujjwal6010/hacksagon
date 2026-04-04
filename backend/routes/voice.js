@@ -5,6 +5,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const twilio = require('twilio');
 const HealthLog = require('../models/HealthLog');
+const User = require('../models/User');
 
 const router = express.Router();
 const processedRecordings = new Set();
@@ -12,6 +13,7 @@ const processedRecordings = new Set();
 // Track per-call error counts to prevent infinite "System busy" loops
 const callErrorCounts = new Map();
 const callLastAudioUrl = new Map();
+const callUserIdentity = new Map();   // callSid -> { email, phone } from logged-in user
 const MAX_ERRORS_PER_CALL = 2;
 
 const {
@@ -125,13 +127,14 @@ async function sarvamTranslate(text, sourceLanguageCode, targetLanguageCode) {
   return response.data.translated_text || response.data.output || text;
 }
 
-async function queryPythonRag(englishQuery, userPhone) {
+async function queryPythonRag(englishQuery, userPhone, userEmail) {
   const response = await axios.post(
     'http://localhost:8000/ask',
     {
       query: englishQuery,
       language_code: 'en-IN',
-      user_phone: userPhone,
+      user_phone: userPhone || '',
+      user_email: userEmail || '',
       source: 'voice_call',
     },
     { timeout: 120000 }
@@ -224,18 +227,40 @@ function deriveSimpleClinicalData(queryEnglish, answerEnglish) {
   };
 }
 
-async function saveVoiceInteraction({ from, userMessageNative, userMessageEnglish, aiReplyNative, aiReplyEnglish }) {
+async function saveVoiceInteraction({ from, userMessageNative, userMessageEnglish, aiReplyNative, aiReplyEnglish, callSid }) {
   const clinical = deriveSimpleClinicalData(userMessageEnglish, aiReplyEnglish);
 
+  // Check if this call is linked to a logged-in user account
+  const identity = callSid ? callUserIdentity.get(callSid) : null;
+  const userEmail = identity?.email || '';
+  const userPhone = identity?.phone || '';
+
+  // Determine the best filter to find/create the right document
+  let filter;
+  let phoneForDb;
+  if (userEmail) {
+    // User is logged in with email — save under their account
+    phoneForDb = userPhone || `email:${userEmail}`;
+    filter = { $or: [{ user_email: userEmail }, { phone_number: phoneForDb }] };
+  } else if (userPhone) {
+    phoneForDb = userPhone;
+    filter = { phone_number: userPhone };
+  } else {
+    // Fallback to Twilio caller number
+    phoneForDb = from || 'anonymous';
+    filter = { phone_number: phoneForDb };
+  }
+
   await HealthLog.updateOne(
-    { phone_number: from || 'anonymous' },
+    filter,
     {
       $setOnInsert: {
-        phone_number: from || 'anonymous',
+        phone_number: phoneForDb,
         created_at: new Date(),
       },
       $set: {
         updated_at: new Date(),
+        ...(userEmail ? { user_email: userEmail } : {}),
       },
       $push: {
         history: {
@@ -260,6 +285,9 @@ async function saveVoiceInteraction({ from, userMessageNative, userMessageEnglis
 
 router.post('/trigger', async (req, res) => {
   try {
+    console.log(`[voice] TRIGGER called. Body: ${JSON.stringify(req.body)}`);
+    const { user_email, user_phone } = req.body || {};
+    console.log(`[voice] TRIGGER parsed: user_email="${user_email}", user_phone="${user_phone}"`);
     const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
     const call = await client.calls.create({
       to: MY_PHONE_NUMBER,
@@ -267,6 +295,14 @@ router.post('/trigger', async (req, res) => {
       url: `${WEBHOOK_BASE_URL}/api/voice/webhook`,
       method: 'POST',
     });
+
+    // Link this callSid to the logged-in user's identity
+    if (user_email || user_phone) {
+      callUserIdentity.set(call.sid, { email: user_email || '', phone: user_phone || '' });
+      console.log(`[voice] ✅ Linked call ${call.sid} to user: ${user_email || user_phone}`);
+    } else {
+      console.log(`[voice] ⚠️ No user identity provided for call ${call.sid}`);
+    }
 
     return res.status(200).json({
       message: 'Call initiated successfully',
@@ -319,7 +355,7 @@ router.post('/webhook', (req, res) => {
 });
 
 router.post('/process-ai', (req, res) => {
-  const { RecordingUrl, RecordingStatus, RecordingSid, CallSid, From } = req.body;
+  const { RecordingUrl, RecordingStatus, RecordingSid, CallSid, From, To, Direction } = req.body;
 
   if (RecordingStatus && RecordingStatus !== 'completed') {
     return res.status(200).send('');
@@ -361,12 +397,12 @@ router.post('/process-ai', (req, res) => {
   res.send(xml);
 
   // ── Fire-and-forget: process the pipeline in the background ──
-  processVoicePipeline({ RecordingUrl, CallSid, From }).catch((err) => {
+  processVoicePipeline({ RecordingUrl, CallSid, From, To, Direction }).catch((err) => {
     console.error(`[voice] [${CallSid}] Background pipeline fatal:`, err.message);
   });
 });
 
-async function processVoicePipeline({ RecordingUrl, CallSid, From }) {
+async function processVoicePipeline({ RecordingUrl, CallSid, From, To, Direction }) {
   const timestamp = Date.now();
   const tmpDir = path.join(__dirname, '..', 'public', 'tts');
   const inputPath = path.join(tmpDir, `input_${timestamp}.wav`);
@@ -374,6 +410,36 @@ async function processVoicePipeline({ RecordingUrl, CallSid, From }) {
 
   if (!fs.existsSync(tmpDir)) {
     fs.mkdirSync(tmpDir, { recursive: true });
+  }
+
+  // Auto-link: if no identity mapped yet, look up the user's phone in the users collection
+  if (CallSid && !callUserIdentity.has(CallSid)) {
+    try {
+      // For outbound calls (triggered from website), From = Twilio number, To = user's phone
+      // For inbound calls, From = user's phone, To = Twilio number
+      const isOutbound = Direction && Direction.startsWith('outbound');
+      const userPhone = isOutbound ? To : From;
+      console.log(`[voice] [${CallSid}] Call direction: ${Direction || 'unknown'}, From=${From}, To=${To}, looking up user by: ${userPhone}`);
+
+      if (userPhone) {
+        const user = await User.findOne({
+          $or: [
+            { phoneNumber: userPhone },
+            { phoneNumber: userPhone.replace('+', '') },
+            { phoneNumber: userPhone.replace(/^\+91/, '') },
+            { phoneNumber: userPhone.replace(/^\+1/, '') },
+          ]
+        });
+        if (user) {
+          callUserIdentity.set(CallSid, { email: user.email || '', phone: user.phoneNumber || userPhone });
+          console.log(`[voice] [${CallSid}] ✅ Auto-linked to user: ${user.email || user.phoneNumber}`);
+        } else {
+          console.log(`[voice] [${CallSid}] No registered user found for phone ${userPhone}`);
+        }
+      }
+    } catch (err) {
+      console.log(`[voice] [${CallSid}] User lookup failed: ${err.message}`);
+    }
   }
 
   let pipelineStep = 'init';
@@ -409,7 +475,9 @@ async function processVoicePipeline({ RecordingUrl, CallSid, From }) {
 
     pipelineStep = 'python-rag';
     console.log(`[voice] [${CallSid}] Querying Python RAG...`);
-    const aiEnglishReply = await queryPythonRag(userEnglishText, From || null);
+    const identity = callUserIdentity.get(CallSid);
+    console.log(`[voice] [${CallSid}] User identity lookup: ${identity ? JSON.stringify(identity) : 'NOT FOUND'} (map size: ${callUserIdentity.size})`);
+    const aiEnglishReply = await queryPythonRag(userEnglishText, identity?.phone || From || null, identity?.email || '');
     console.log(`[voice] [${CallSid}] RAG reply: "${aiEnglishReply.slice(0, 80)}"`);
 
     pipelineStep = 'translate-to-native';
@@ -427,6 +495,7 @@ async function processVoicePipeline({ RecordingUrl, CallSid, From }) {
       userMessageEnglish: userEnglishText,
       aiReplyNative: aiNativeReply,
       aiReplyEnglish: aiEnglishReply,
+      callSid: CallSid,
     });
 
     // Reset error count on success

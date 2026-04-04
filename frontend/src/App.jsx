@@ -1402,7 +1402,11 @@ function App() {
     try {
       const response = await fetch(`${API_BASE}/api/voice/trigger`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_email: user?.email || '',
+          user_phone: user?.phoneNumber || '',
+        })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Failed to trigger call');
