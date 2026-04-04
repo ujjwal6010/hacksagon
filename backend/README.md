@@ -1,176 +1,152 @@
-# Janani Backend — Foundation Setup Quick Start
+# Janani Backend
+
+## Architecture
+
+The backend is a **dual-service architecture**:
+
+1. **Node.js / Express 5** (port 5000) — API gateway, auth, Twilio voice pipeline, dashboards, SOS
+2. **Python / FastAPI** (port 8000) — AI/RAG microservice, clinical extraction, translation
 
 ## Project Structure
 
 ```
 backend/
-├── config/              # Configuration modules
-│   ├── env.js          # Environment variable loader
-│   └── db.js           # MongoDB connection manager
-├── models/             # Mongoose schemas (normalized)
-│   ├── User.js         # Authenticated user model
-│   └── HealthLog.js    # Patient interaction history + summaries
-├── python/             # Python AI service
-│   ├── api.py          # FastAPI placeholder
-│   └── (future modules)
-├── public/tts/         # Generated TTS audio folder
-├── server.js           # Node.js HTTP entry point
-├── package.json        # Node dependencies
-├── requirements.txt    # Python dependencies
-├── .env.example        # Environment template
-├── verify.js           # DB connection verification script
-├── Dockerfile          # Multi-stage build
-└── start.sh            # Service startup orchestration
+├── config/
+│   ├── db.js               # MongoDB connection helper
+│   └── env.js              # Environment variable validation
+├── controllers/
+│   └── auth.controller.js  # Auth business logic
+├── models/
+│   ├── User.js             # User schema (name, email, pregnancy info)
+│   ├── HealthLog.js        # Health log with interaction history & summaries
+│   └── Incident.js         # SOS incident tracking (with GPS coordinates)
+├── routes/
+│   ├── auth.js             # POST /signup, /login, PUT /profile
+│   ├── voice.js            # Twilio voice pipeline (STT → RAG → TTS)
+│   ├── dashboard.js        # GET health stats, doctor/family summaries
+│   ├── sos.js              # POST trigger (GPS), GET status, POST resolve
+│   └── inbound.js          # Inbound call handler
+├── services/
+│   ├── auth.service.js     # Auth business logic
+│   └── summaryCron.js      # Cron-based AI health summaries
+├── python/
+│   ├── api.py              # FastAPI app — /ask endpoint + clinical extraction
+│   ├── rag_service.py      # RAG chain (retrieve → generate)
+│   ├── ingest.py           # health_book.txt → ChromaDB
+│   ├── prompts.py          # System prompts for RAG & extraction
+│   ├── schemas.py          # Pydantic models
+│   └── health_book.txt     # 1.4 MB clinical reference document
+├── public/tts/             # Generated TTS audio (auto-created)
+├── server.js               # Express entry point
+├── package.json
+├── requirements.txt
+├── Dockerfile
+└── start.sh                # Docker entrypoint
 ```
 
-## Setup Instructions
+## Quick Start
 
 ### 1. Install Dependencies
 
-**Node:**
 ```bash
 cd backend
 npm install
-cp .env.example .env
-```
 
-**Python:**
-```bash
-python -m venv venv
-source venv/bin/activate  # or: venv\Scripts\activate (Windows)
+# Python (use venv)
+python -m venv .venv
+.venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
 
 ### 2. Configure Environment
 
-Edit `backend/.env`:
-```env
-MONGODB_URI=mongodb://localhost:27017/janani_db
-NODE_ENV=development
-PORT=5000
-PYTHON_SERVICE_URL=http://localhost:8000
-```
+Copy `.env.example` to `.env` and fill in:
 
-### 3. Start MongoDB
+| Variable | Required | Description |
+|---|---|---|
+| `MONGO_URI` | ✅ | MongoDB Atlas connection string |
+| `DB_NAME` | ✅ | Database name (default: `janani`) |
+| `PORT` | ✅ | Server port (default: `5000`) |
+| `JWT_SECRET` | ✅ | JWT signing secret |
+| `GROQ_API_KEY` | ✅ | Groq API key for Llama 3.3 |
+| `SARVAM_API_KEY` | ✅ | Sarvam AI API key (STT, TTS, Translate) |
+| `TWILIO_ACCOUNT_SID` | ✅ | Twilio Account SID |
+| `TWILIO_AUTH_TOKEN` | ✅ | Twilio Auth Token |
+| `TWILIO_PHONE_NUMBER` | ✅ | Twilio phone number |
+| `MY_PHONE_NUMBER` | ✅ | Target phone for outbound calls |
+| `RELATIVE_PHONE_NUMBER` | ✅ | Emergency contact for SOS alerts |
+| `WEBHOOK_BASE_URL` | ✅ | Public URL (ngrok) for Twilio webhooks |
+| `ALLOWED_ORIGINS` | ❌ | CORS origins (comma-separated) |
 
-**Local MongoDB:**
-```bash
-mongod
-# In another terminal:
-mongo  # to verify connection
-```
+### 3. Start Services
 
-**Docker MongoDB:**
-```bash
-docker run -d -p 27017:27017 --name janani_mongo mongo:7
-```
-
-### 4. Verify Setup
-
-```bash
-cd backend
-node verify.js
-```
-
-Expected output:
-```
-📋 Janani Backend Verification
-
-1️⃣  Connecting to MongoDB...
-✓ MongoDB connected successfully
-2️⃣  Testing User model schema...
-3️⃣  Testing HealthLog model schema...
-4️⃣  Testing User validation...
-   ✓ PASSED: Correctly rejected user without email/phone
-5️⃣  Testing HealthLog validation...
-   ✓ PASSED: Correctly rejected HealthLog without identity
-6️⃣  Testing valid document creation...
-   ✓ PASSED: Valid User document created
-   ✓ PASSED: Valid HealthLog document created
-
-✅ All validations passed!
-```
-
-### 5. Start Services (Manual)
-
-**Terminal 1 — Python AI Service:**
+**Terminal 1 — Python RAG:**
 ```bash
 cd backend/python
 python api.py
-# Should output: INFO:     Uvicorn running on http://0.0.0.0:8000
+# Runs on http://localhost:8000
 ```
 
-**Terminal 2 — Node API Server:**
+**Terminal 2 — Node.js API:**
 ```bash
 cd backend
-npm start
-# Should output: ✓ Janani Backend running on port 5000
+node server.js
+# Runs on http://localhost:5000
 ```
 
-**OR use the startup script:**
+**Terminal 3 — Ngrok (for Twilio webhooks):**
 ```bash
-cd backend
-chmod +x start.sh
-./start.sh
+ngrok http 5000
+# Copy the HTTPS URL → set as WEBHOOK_BASE_URL in .env
 ```
 
-### 6. Verify Services Running
+## API Endpoints
 
-```bash
-curl http://localhost:5000/health
-# {"status":"ok","timestamp":"..."}
+### Auth
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/auth/signup` | Register new user |
+| `POST` | `/api/auth/login` | Login → JWT token |
+| `PUT` | `/api/auth/profile` | Update pregnancy info, allergies |
 
-curl http://localhost:8000/health
-# {"status":"ok"}
-```
+### AI Chat
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/ask` | Proxy to Python RAG service |
 
----
+### Voice (Twilio)
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/voice/trigger` | Initiate outbound call |
+| `POST` | `/api/voice/webhook` | Twilio webhook — greeting + record |
+| `POST` | `/api/voice/process-ai` | Process recording through AI pipeline |
+| `POST` | `/api/voice/call-status` | Post-call analysis + SMS + SOS detection |
 
-## Data Model Overview
+### Dashboard
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/dashboard/:id` | Health overview (symptoms, meds, severity, relief rate) |
+| `GET` | `/api/dashboard/:id/summary/doctor` | Doctor-facing clinical summary |
+| `GET` | `/api/dashboard/:id/summary/family` | Simplified family summary |
+| `GET` | `/api/dashboard/:id/history` | Paginated conversation history |
 
-### User Collection
-- **Purpose:** Authenticated users (doctors, support staff, future)
-- **Validation:** At least email OR phoneNumber required
-- **Fields:** name, email, phoneNumber (unique, sparse), passwordHash, timestamps
+### SOS Emergency
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/sos/trigger` | Panic button trigger (accepts `latitude`, `longitude`) |
+| `GET` | `/api/sos/status/:email` | Check active SOS status |
+| `POST` | `/api/sos/resolve/:id` | Resolve an incident |
+| `GET` | `/api/sos/history/:email` | SOS audit trail |
 
-### HealthLog Collection
-- **Purpose:** Patient interaction history (one document per patient)
-- **Identity Priority:** phoneNumber > email > userId
-- **Sections:**
-  - **history[]** — All interactions (text/voice/calls)
-  - **summaries[]** — AI-generated daily/weekly/monthly summaries
-- **Interaction Structure:**
-  - source, languages (detected/requested/response)
-  - userInput (native, English, raw transcript)
-  - aiOutput (English, native, model, retrieval metadata)
-  - clinical (symptoms, medications, relief, fetal movement, severity)
-  - meta (session IDs, Twilio refs, processing status)
+**SOS Protocol:** When triggered, the system simultaneously:
+1. Creates an Incident in MongoDB (with GPS coordinates)
+2. Places a voice call to the emergency contact
+3. Sends an SMS with patient location + nearby hospital links
 
----
+## Key Features
 
-## Next Phase (Waiting for Instructions)
-
-This foundation includes:
-✅ Project structure (Node + Python)
-✅ Environment config loading
-✅ MongoDB connection setup
-✅ User model (normalized validation)
-✅ HealthLog model (fully normalized as specified)
-✅ Verification script
-✅ Dockerfile + startup orchestration
-
-**NOT included** (per scope):
-❌ Routes, controllers, or APIs
-❌ Authentication logic
-❌ AI, Twilio, or dashboard functionality
-❌ Extra features
-
----
-
-## Ready for Next Phase
-
-Stop here and wait for next instruction to proceed with:
-- Phase 2A: Authentication module
-- Phase 2B: Dashboard service foundation
-- Phase 2C: Twilio + voice service integration
-- etc.
+- **Relief Detection** — AI extracts relief signals from conversations (20+ keywords) to calculate Relief Rate
+- **GPS-Enabled SOS** — Browser geolocation captured on SOS trigger, sent as Google Maps links in SMS
+- **Nearby Hospitals** — Embedded Google Maps iframe on dashboard showing hospitals near the user
+- **5-Min Cooldown** — Prevents accidental repeated SOS triggers
+- **Post-Call Analysis** — Groq analyzes full conversation transcript for severity scoring and emergency detection

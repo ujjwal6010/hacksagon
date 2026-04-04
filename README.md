@@ -11,7 +11,8 @@ Built for the Hacksagon hackathon.
 - **Twilio Voice Pipeline** — Toll-free phone calls for users without smartphones. Full STT → Translate → RAG → Translate → TTS → Play pipeline over a live call.
 - **Clinical Data Extraction** — Every conversation is automatically parsed for symptoms, medications, fetal movement, severity scores, and relief indicators.
 - **Smart Dashboards** — Patient health overview, doctor summary with red-flag detection, and simplified family summary — all auto-generated from conversation data.
-- **SOS Panic Button & AI-Triggered Alerts** — Manual long-press or AI-detected emergencies trigger voice calls + SMS to the patient's emergency contact.
+- **Nearby Hospitals Map** — Auto-detects the user's GPS location and displays an embedded Google Maps view of nearby hospitals directly on the dashboard.
+- **SOS Panic Button & AI-Triggered Alerts** — Manual long-press or AI-detected emergencies trigger voice calls + SMS (with GPS location & hospital links) to the patient's emergency contact.
 - **Post-Call SMS Alerts** — After every phone call, Groq analyzes the transcript and sends a severity-graded SMS summary to a family member.
 - **Automated Health Summaries** — Cron-powered daily, weekly, and monthly AI-generated health reports stored per patient.
 - **Progressive Web App** — Installable on any device with offline caching via Workbox service worker.
@@ -54,6 +55,8 @@ Built for the Hacksagon hackathon.
 | Sarvam AI | Indian-language STT, TTS, Translation | [sarvam.ai](https://www.sarvam.ai) |
 | Twilio | Voice calls & SMS | [twilio.com](https://www.twilio.com) |
 | HuggingFace | Embedding model download (optional, auto-cached) | [huggingface.co](https://huggingface.co) |
+
+> **Note:** HuggingFace API token is optional — embedding models are downloaded and cached automatically on first run.
 
 ---
 
@@ -108,7 +111,7 @@ Configure the following variables in `backend/.env`:
 | `RELATIVE_PHONE_NUMBER` | Emergency contact for SMS alerts | `+91xxxxxxxxxx` |
 | `GROQ_API_KEY` | Groq API key | `gsk_xxxxxxxxxxxx` |
 | `SARVAM_API_KEY` | Sarvam AI API key | `sk_xxxxxxxxxxxx` |
-| `HUGGINGFACEHUB_API_TOKEN` | HuggingFace token (optional) | `hf_xxxxxxxxxxxx` |
+| `HUGGINGFACEHUB_API_TOKEN` | HuggingFace token (optional, not required) | `hf_xxxxxxxxxxxx` |
 
 ### 4. Frontend Setup
 
@@ -257,7 +260,7 @@ User calls → Twilio webhook → /api/voice/webhook (greeting + record)
 Call ends → /api/voice/call-status
   → Groq analyzes transcript → severity (GREEN/YELLOW/RED)
   → SMS summary sent to relative
-  → If RED/EMERGENCY → SOS protocol (voice call + SMS + incident log)
+  → If RED/EMERGENCY → SOS protocol (voice call + SMS with GPS links + incident log)
 ```
 
 ### Request Lifecycle — Web Chat
@@ -321,6 +324,8 @@ incidents (SOS)
 ├── trigger_source (Enum: AI-Detected / Manual-Press)
 ├── severity (Enum: RED / CRITICAL)
 ├── notes (String)
+├── latitude (Number, nullable) ── GPS lat from browser
+├── longitude (Number, nullable) ── GPS lng from browser
 ├── resolved (Boolean)
 ├── resolved_at (Date)
 ├── resolved_by (String)
@@ -370,7 +375,7 @@ incidents (SOS)
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/sos/trigger` | Manual panic button trigger |
+| `POST` | `/api/sos/trigger` | Manual panic button trigger (accepts lat/lng for GPS) |
 | `GET` | `/api/sos/status/:email` | Check active SOS status |
 | `POST` | `/api/sos/resolve/:id` | Resolve an SOS incident |
 | `GET` | `/api/sos/history/:email` | SOS incident audit trail |
