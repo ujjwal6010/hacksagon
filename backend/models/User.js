@@ -25,6 +25,18 @@ const userSchema = new mongoose.Schema({
     required: true,
     minlength: 6,
   },
+  pregnancyDate: {
+    type: String,
+    default: '',
+  },
+  allergies: {
+    type: String,
+    default: '',
+  },
+  medicalHistory: {
+    type: String,
+    default: '',
+  },
   createdAt: {
     type: Date,
     default: Date.now,

@@ -23,7 +23,14 @@ const {
   MY_PHONE_NUMBER,
   WEBHOOK_BASE_URL,
   SARVAM_API_KEY,
+  GROQ_API_KEY,
+  RELATIVE_PHONE_NUMBER,
 } = process.env;
+
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+// Track which callSids belong to the same session for post-call analysis
+const callSessionInteractions = new Map(); // callSid -> [{ user, ai }]
 
 function voiceResponseXml(builderFn) {
   const vr = new twilio.twiml.VoiceResponse();
@@ -294,6 +301,9 @@ router.post('/trigger', async (req, res) => {
       from: TWILIO_PHONE_NUMBER,
       url: `${WEBHOOK_BASE_URL}/api/voice/webhook`,
       method: 'POST',
+      statusCallback: `${WEBHOOK_BASE_URL}/api/voice/call-status`,
+      statusCallbackEvent: ['completed'],
+      statusCallbackMethod: 'POST',
     });
 
     // Link this callSid to the logged-in user's identity
@@ -498,6 +508,17 @@ async function processVoicePipeline({ RecordingUrl, CallSid, From, To, Direction
       callSid: CallSid,
     });
 
+    // Record this interaction for post-call SMS analysis
+    if (CallSid) {
+      if (!callSessionInteractions.has(CallSid)) {
+        callSessionInteractions.set(CallSid, []);
+      }
+      callSessionInteractions.get(CallSid).push({
+        user: userEnglishText,
+        ai: aiEnglishReply,
+      });
+    }
+
     // Reset error count on success
     if (CallSid) {
       callErrorCounts.delete(CallSid);
@@ -650,10 +671,177 @@ router.post('/new-query', (req, res) => {
   return res.send(xml);
 });
 
+// ── Post-call SMS: when the call ends, analyze & alert the relative ──
+router.post('/call-status', async (req, res) => {
+  const { CallSid, CallStatus } = req.body;
+  console.log(`[voice] [${CallSid}] Call status: ${CallStatus}`);
+
+  // Always respond 200 immediately
+  res.status(200).send('');
+
+  if (CallStatus !== 'completed') return;
+
+  // Fire-and-forget: analyze the call and send SMS
+  analyzeAndAlertRelative(CallSid).catch((err) => {
+    console.error(`[voice] [${CallSid}] SMS alert failed:`, err.message);
+  });
+});
+
+async function analyzeAndAlertRelative(callSid) {
+  if (!RELATIVE_PHONE_NUMBER) {
+    console.log(`[voice] [${callSid}] No RELATIVE_PHONE_NUMBER configured, skipping SMS alert`);
+    return;
+  }
+
+  // Get the user identity for this call
+  const identity = callUserIdentity.get(callSid);
+  const userEmail = identity?.email || '';
+  const userPhone = identity?.phone || '';
+
+  if (!userEmail && !userPhone) {
+    console.log(`[voice] [${callSid}] No user identity for SMS alert, skipping`);
+    return;
+  }
+
+  // Find the user's name
+  let patientName = 'the patient';
+  try {
+    const user = await User.findOne({
+      $or: [
+        ...(userEmail ? [{ email: userEmail }] : []),
+        ...(userPhone ? [{ phoneNumber: userPhone }] : []),
+      ]
+    });
+    if (user?.name) patientName = user.name;
+  } catch (e) {
+    // Use fallback name
+  }
+
+  // Fetch recent interactions from this session
+  const sessionData = callSessionInteractions.get(callSid) || [];
+  if (!sessionData.length) {
+    console.log(`[voice] [${callSid}] No interactions recorded for this call, skipping SMS`);
+    return;
+  }
+
+  // Build the transcript
+  const transcript = sessionData
+    .map((item, i) => `Turn ${i + 1}:\nPatient: "${item.user}"\nJanani AI: "${item.ai}"`)
+    .join('\n\n');
+
+  console.log(`[voice] [${callSid}] Analyzing ${sessionData.length} turns for SMS alert...`);
+
+  // Send transcript to Groq for analysis
+  const systemPrompt = `You are the "Janani" Maternal Health AI. Your goal is to analyze a Twilio call transcript between a healthcare AI assistant and a pregnant patient, then generate a status update for her emergency contact.
+
+### TASK
+1. ANALYZE: Read the transcript and identify the patient's physical and emotional well-being.
+2. CATEGORIZE: Assign a 'Severity Level':
+   - GREEN: Everything is normal.
+   - YELLOW: Minor concerns (e.g., mild nausea, fatigue) - needs monitoring.
+   - RED: Urgent concerns (e.g., high BP, bleeding, severe pain) - needs immediate action.
+3. SUMMARIZE: Create a non-technical, empathetic 1-sentence summary of the call.
+4. ACTION: Provide exactly one "Next Step" for the relative.
+
+### CONSTRAINTS
+- The sms_body must be under 160 characters (SMS limit).
+- Do not use medical jargon.
+- Always lead with the patient's name.
+- The patient's name is: ${patientName}
+
+### OUTPUT FORMAT (strict JSON)
+{
+  "severity": "GREEN or YELLOW or RED",
+  "internal_notes": "Technical summary for database.",
+  "sms_body": "Janani Update: ${patientName} is [Status]. [Summary]. Next: [Action]."
+}`;
+
+  try {
+    const groqRes = await axios.post(
+      GROQ_URL,
+      {
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `### TRANSCRIPT\n${transcript}` },
+        ],
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      }
+    );
+
+    const raw = groqRes.data.choices?.[0]?.message?.content || '{}';
+    const analysis = JSON.parse(raw);
+    console.log(`[voice] [${callSid}] Analysis result:`, JSON.stringify(analysis));
+
+    const smsBody = analysis.sms_body || `Janani Update: ${patientName} had a health call. Please check in with her.`;
+
+    // Send SMS via Twilio
+    const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+    const msg = await client.messages.create({
+      to: RELATIVE_PHONE_NUMBER,
+      from: TWILIO_PHONE_NUMBER,
+      body: smsBody.slice(0, 160),
+    });
+
+    console.log(`[voice] [${callSid}] ✅ SMS sent to relative (${RELATIVE_PHONE_NUMBER}): SID ${msg.sid}`);
+    console.log(`[voice] [${callSid}] SMS body: "${smsBody.slice(0, 160)}"`);
+
+    // Save the analysis to the user's health log
+    const phoneForDb = userPhone || `email:${userEmail}`;
+    await HealthLog.updateOne(
+      { $or: [{ user_email: userEmail }, { phone_number: phoneForDb }] },
+      {
+        $push: {
+          history: {
+            timestamp: new Date(),
+            user_message_english: `[CALL SUMMARY - ${analysis.severity}]`,
+            user_message_native: '',
+            rag_reply_english: analysis.internal_notes || '',
+            rag_reply_native: '',
+            symptoms: [],
+            medications: [],
+            severity_score: analysis.severity === 'RED' ? 9 : analysis.severity === 'YELLOW' ? 5 : 2,
+            ai_summary: `SMS sent to relative: ${smsBody.slice(0, 160)}`,
+            _source: 'call_summary',
+          },
+        },
+        $set: { updated_at: new Date() },
+      }
+    );
+  } catch (err) {
+    console.error(`[voice] [${callSid}] Groq analysis / SMS failed:`, err.message);
+    // Send a fallback SMS
+    try {
+      const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+      await client.messages.create({
+        to: RELATIVE_PHONE_NUMBER,
+        from: TWILIO_PHONE_NUMBER,
+        body: `Janani Update: ${patientName} just had a health call. Please check in with her.`,
+      });
+      console.log(`[voice] [${callSid}] Fallback SMS sent to relative`);
+    } catch (smsErr) {
+      console.error(`[voice] [${callSid}] Fallback SMS also failed:`, smsErr.message);
+    }
+  } finally {
+    // Clean up session data
+    callSessionInteractions.delete(callSid);
+    callUserIdentity.delete(callSid);
+  }
+}
+
 // Clean up stale tracking entries periodically (every 10 minutes)
 setInterval(() => {
   callErrorCounts.clear();
   callLastAudioUrl.clear();
+  // Don't clear callUserIdentity or callSessionInteractions here — they're cleaned per-call
 }, 10 * 60 * 1000);
 
 module.exports = router;

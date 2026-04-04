@@ -54,6 +54,9 @@ router.post('/signup', async (req, res) => {
         name: user.name,
         email: user.email,
         phoneNumber: user.phoneNumber,
+        pregnancyDate: user.pregnancyDate || '',
+        allergies: user.allergies || '',
+        medicalHistory: user.medicalHistory || '',
       },
     });
   } catch (error) {
@@ -91,6 +94,45 @@ router.post('/login', async (req, res) => {
         name: user.name,
         email: user.email,
         phoneNumber: user.phoneNumber,
+        pregnancyDate: user.pregnancyDate || '',
+        allergies: user.allergies || '',
+        medicalHistory: user.medicalHistory || '',
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+router.put('/profile', async (req, res) => {
+  try {
+    const { userId, pregnancyDate, allergies, medicalHistory } = req.body;
+    if (!userId) {
+      return res.status(400).json({ message: 'userId is required' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        ...(pregnancyDate !== undefined && { pregnancyDate }),
+        ...(allergies !== undefined && { allergies }),
+        ...(medicalHistory !== undefined && { medicalHistory }),
+      },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    return res.status(200).json({
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        pregnancyDate: user.pregnancyDate || '',
+        allergies: user.allergies || '',
+        medicalHistory: user.medicalHistory || '',
       },
     });
   } catch (error) {

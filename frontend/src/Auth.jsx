@@ -78,6 +78,13 @@ const Auth = ({ onClose, onAuthSuccess }) => {
             if (data.token) localStorage.setItem('token', data.token);
 
             if (isLogin) {
+                // Compute derived pregnancy fields from backend profile
+                if (userData.pregnancyDate) {
+                    const diffDays = Math.floor((new Date() - new Date(userData.pregnancyDate)) / (1000 * 60 * 60 * 24));
+                    const week = Math.max(0, Math.floor(diffDays / 7));
+                    userData.pregnancyWeek = week;
+                    userData.patientProfile = `Patient Case: ${week} weeks pregnant (LMP: ${userData.pregnancyDate}). Allergies: ${userData.allergies || 'None'}. Medical History: ${userData.medicalHistory || 'No significant history'}.`;
+                }
                 localStorage.setItem('user', JSON.stringify(userData));
                 onAuthSuccess(userData);
                 onClose();
@@ -92,7 +99,7 @@ const Auth = ({ onClose, onAuthSuccess }) => {
         }
     };
 
-    const handleProfileSubmit = (e) => {
+    const handleProfileSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
 
@@ -116,6 +123,22 @@ const Auth = ({ onClose, onAuthSuccess }) => {
             allergies: profileData.allergies,
             medicalHistory: profileData.history
         };
+
+        // Save profile to backend so it persists across logins
+        try {
+            await fetch(`${API_BASE}/api/auth/profile`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: formData.currentAuthUser.id,
+                    pregnancyDate: profileData.pregnancyDate,
+                    allergies: profileData.allergies,
+                    medicalHistory: profileData.history,
+                })
+            });
+        } catch (err) {
+            console.error('Failed to save profile to backend:', err);
+        }
 
         localStorage.setItem('user', JSON.stringify(updatedUser));
         onAuthSuccess(updatedUser);
