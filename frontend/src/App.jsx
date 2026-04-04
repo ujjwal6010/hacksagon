@@ -1676,6 +1676,7 @@ function App() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    setView('landing');
   };
 
   return (
