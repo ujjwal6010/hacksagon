@@ -16,7 +16,7 @@ const {
 // ── Shared SOS Protocol ──────────────────────────────────────────────
 // Called by both manual (panic button) and AI-detected triggers.
 // Actions: Voice call → SMS → Log to Incidents collection
-async function executeSosProtocol({ userEmail, userPhone, patientName, triggerSource, notes }) {
+async function executeSosProtocol({ userEmail, userPhone, patientName, triggerSource, notes, latitude, longitude }) {
   const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
   const targetPhone = RELATIVE_PHONE_NUMBER;
 
@@ -35,6 +35,8 @@ async function executeSosProtocol({ userEmail, userPhone, patientName, triggerSo
     trigger_source: triggerSource,
     severity: 'CRITICAL',
     notes: notes || '',
+    latitude: latitude || null,
+    longitude: longitude || null,
   });
 
   console.log(`[SOS] 🚨 Incident created: ${incident._id} (${triggerSource}) for ${safeName}`);
@@ -70,10 +72,15 @@ async function executeSosProtocol({ userEmail, userPhone, patientName, triggerSo
 
   const smsPromise = (async () => {
     try {
+      console.log(`[SOS] SMS debug: lat=${latitude}, lng=${longitude}`);
+      const smsBody = latitude && longitude
+        ? `EMERGENCY from Janani: ${safeName} needs immediate medical attention!\n\nLocation: https://maps.google.com/?q=${latitude},${longitude}\nHospitals: https://www.google.com/maps/search/hospitals/@${latitude},${longitude},14z\n\nPlease check on them NOW.`
+        : `EMERGENCY from Janani: ${safeName} needs immediate medical attention! Source: ${triggerSource}. Please check on them NOW.`;
+      console.log(`[SOS] SMS body preview: ${smsBody.slice(0, 120)}...`);
       const msg = await client.messages.create({
         to: targetPhone,
         from: TWILIO_PHONE_NUMBER,
-        body: `🚨 CRITICAL ALERT from Janani: ${safeName} needs immediate medical attention! Source: ${triggerSource}. Please check on them NOW.`,
+        body: smsBody,
       });
       console.log(`[SOS] ✅ SMS sent: ${msg.sid}`);
       return msg.sid;
@@ -92,7 +99,7 @@ async function executeSosProtocol({ userEmail, userPhone, patientName, triggerSo
 // Manual panic button trigger from the Dashboard
 router.post('/trigger', async (req, res) => {
   try {
-    const { user_email } = req.body;
+    const { user_email, latitude, longitude } = req.body;
 
     if (!user_email) {
       return res.status(400).json({ success: false, message: 'user_email is required' });
@@ -126,6 +133,8 @@ router.post('/trigger', async (req, res) => {
       patientName,
       triggerSource: 'Manual-Press',
       notes: 'Triggered via Dashboard panic button',
+      latitude: latitude || null,
+      longitude: longitude || null,
     });
 
     if (!incident) {

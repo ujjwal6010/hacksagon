@@ -15,6 +15,8 @@ const incidentSchema = new mongoose.Schema({
     default: 'CRITICAL',
   },
   notes: { type: String, default: '' },
+  latitude: { type: Number, default: null },
+  longitude: { type: Number, default: null },
   resolved: { type: Boolean, default: false },
   resolved_at: { type: Date, default: null },
   resolved_by: { type: String, default: '' },

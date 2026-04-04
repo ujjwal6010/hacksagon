@@ -4,7 +4,7 @@ import {
     Baby, Bot, Activity, Calendar, Award, AlertTriangle, ChevronRight,
     Volume2, Plus, X, Save, Clock, User, PlusCircle, Trash2, ArrowLeft,
     Heart, Pill, Shield, FileText, MessageSquare, ChevronDown, ChevronUp,
-    Stethoscope, Users as UsersIcon, Loader, ShieldAlert, Phone
+    Stethoscope, Users as UsersIcon, Loader, ShieldAlert, Phone, MapPin
 } from 'lucide-react';
 
 const BACKEND = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -29,6 +29,9 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
     const [panicProgress, setPanicProgress] = useState(0);
     const [sosSending, setSosSending] = useState(false);
     const [sosMessage, setSosMessage] = useState('');
+
+    // Geolocation state
+    const [userLocation, setUserLocation] = useState(null);
 
 
     const [stats, setStats] = useState(() => {
@@ -94,9 +97,20 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
             } catch (e) { /* silent */ }
         };
         checkSos();
-        const interval = setInterval(checkSos, 30000); // re-check every 30s
+        const interval = setInterval(checkSos, 30000);
         return () => clearInterval(interval);
     }, [identifier]);
+
+    // Capture geolocation on mount
+    useEffect(() => {
+        if ('geolocation' in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+                () => setUserLocation({ lat: 17.385, lng: 78.486 }), // fallback: Hyderabad
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        }
+    }, []);
 
     // Panic button long-press logic
     useEffect(() => {
@@ -127,7 +141,11 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
             const res = await fetch(`${BACKEND}/api/sos/trigger`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_email: identifier }),
+                body: JSON.stringify({
+                    user_email: identifier,
+                    latitude: userLocation?.lat,
+                    longitude: userLocation?.lng,
+                }),
             });
             const data = await res.json();
             if (data.success) {
@@ -426,6 +444,44 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
                                 }}><Phone size={14} /> Call Janani Instead</button>
                             )}
                         </div>
+
+                        {/* Nearby Hospitals Map Card */}
+                        <div style={{ ...card, gridColumn: '1 / -1', padding: '0', overflow: 'hidden' }}>
+                            <div style={{ padding: '1.2rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <h3 style={{ fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                                    <MapPin color="var(--primary)" size={22} /> Nearby Hospitals
+                                </h3>
+                                {userLocation && (
+                                    <a
+                                        href={`https://www.google.com/maps/search/hospitals/@${userLocation.lat},${userLocation.lng},14z`}
+                                        target="_blank" rel="noopener noreferrer"
+                                        style={{
+                                            background: 'var(--primary)', color: 'white', border: 'none',
+                                            padding: '0.5rem 1rem', borderRadius: '50px', fontSize: '0.82rem',
+                                            fontWeight: '600', textDecoration: 'none', display: 'inline-flex',
+                                            alignItems: 'center', gap: '0.3rem'
+                                        }}
+                                    >
+                                        Open in Maps →
+                                    </a>
+                                )}
+                            </div>
+                            <div style={{ width: '100%', height: '320px', background: '#f1f5f9' }}>
+                                {userLocation ? (
+                                    <iframe
+                                        title="Nearby Hospitals"
+                                        width="100%" height="100%" style={{ border: 0 }}
+                                        loading="lazy" referrerPolicy="no-referrer-when-downgrade"
+                                        src={`https://maps.google.com/maps?q=hospitals+near+${userLocation.lat},${userLocation.lng}&z=13&output=embed`}
+                                    />
+                                ) : (
+                                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#94a3b8' }}>
+                                        <Loader size={20} className="spin" style={{ marginRight: '0.5rem' }} /> Detecting your location...
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
 
                         <div style={{ ...card, gridColumn: '1 / -1' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
