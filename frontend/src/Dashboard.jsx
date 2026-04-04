@@ -4,7 +4,7 @@ import {
     Baby, Bot, Activity, Calendar, Award, AlertTriangle, ChevronRight,
     Volume2, Plus, X, Save, Clock, User, PlusCircle, Trash2, ArrowLeft,
     Heart, Pill, Shield, FileText, MessageSquare, ChevronDown, ChevronUp,
-    Stethoscope, Users as UsersIcon, Loader
+    Stethoscope, Users as UsersIcon, Loader, ShieldAlert, Phone
 } from 'lucide-react';
 
 const BACKEND = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -21,6 +21,14 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
     const [historyTotal, setHistoryTotal] = useState(0);
     const [activeTab, setActiveTab] = useState('overview');
     const [expandedInteraction, setExpandedInteraction] = useState(null);
+
+    // SOS state
+    const [sosActive, setSosActive] = useState(false);
+    const [sosIncident, setSosIncident] = useState(null);
+    const [panicHolding, setPanicHolding] = useState(false);
+    const [panicProgress, setPanicProgress] = useState(0);
+    const [sosSending, setSosSending] = useState(false);
+    const [sosMessage, setSosMessage] = useState('');
 
 
     const [stats, setStats] = useState(() => {
@@ -73,6 +81,81 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
         };
         fetchAll();
     }, [identifier]);
+
+    // Poll SOS status on mount
+    useEffect(() => {
+        if (!identifier) return;
+        const checkSos = async () => {
+            try {
+                const res = await fetch(`${BACKEND}/api/sos/status/${encodeURIComponent(identifier)}`);
+                const data = await res.json();
+                setSosActive(data.active);
+                setSosIncident(data.incident);
+            } catch (e) { /* silent */ }
+        };
+        checkSos();
+        const interval = setInterval(checkSos, 30000); // re-check every 30s
+        return () => clearInterval(interval);
+    }, [identifier]);
+
+    // Panic button long-press logic
+    useEffect(() => {
+        let timer;
+        if (panicHolding) {
+            const startTime = Date.now();
+            timer = setInterval(() => {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min((elapsed / 3000) * 100, 100);
+                setPanicProgress(progress);
+                if (progress >= 100) {
+                    clearInterval(timer);
+                    setPanicHolding(false);
+                    setPanicProgress(0);
+                    triggerSos();
+                }
+            }, 50);
+        } else {
+            setPanicProgress(0);
+        }
+        return () => clearInterval(timer);
+    }, [panicHolding]);
+
+    const triggerSos = async () => {
+        setSosSending(true);
+        setSosMessage('');
+        try {
+            const res = await fetch(`${BACKEND}/api/sos/trigger`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_email: identifier }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setSosActive(true);
+                setSosIncident({ _id: data.incident_id, created_at: new Date().toISOString() });
+                setSosMessage('🚨 SOS Alert Sent! Help is on the way.');
+            } else {
+                setSosMessage(data.message || 'SOS failed. Try again.');
+            }
+        } catch (e) {
+            setSosMessage('Network error. Please call emergency services directly.');
+        }
+        setSosSending(false);
+    };
+
+    const resolveSos = async () => {
+        if (!sosIncident?._id) return;
+        try {
+            await fetch(`${BACKEND}/api/sos/resolve/${sosIncident._id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ resolved_by: 'dashboard' }),
+            });
+            setSosActive(false);
+            setSosIncident(null);
+            setSosMessage('');
+        } catch (e) { /* silent */ }
+    };
 
 
     const loadHistory = async (page = 1) => {
@@ -130,6 +213,36 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
                     </button>
                 </div>
 
+                {/* ── CRITICAL SOS BANNER ── */}
+                <AnimatePresence>
+                    {sosActive && (
+                        <Motion.div
+                            initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+                            style={{
+                                background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+                                color: 'white', padding: '1rem 1.5rem', borderRadius: '16px',
+                                marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between',
+                                alignItems: 'center', boxShadow: '0 8px 32px rgba(220,38,38,0.4)',
+                                animation: 'sosPulse 2s ease-in-out infinite'
+                            }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                                <ShieldAlert size={28} />
+                                <div>
+                                    <strong style={{ fontSize: '1.1rem' }}>⚠️ CRITICAL ALERT ACTIVE</strong>
+                                    <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', opacity: 0.9 }}>
+                                        SOS triggered {sosIncident?.created_at ? new Date(sosIncident.created_at).toLocaleString() : 'recently'}
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={resolveSos} style={{
+                                background: 'rgba(255,255,255,0.2)', color: 'white', border: '2px solid white',
+                                padding: '0.5rem 1.2rem', borderRadius: '50px', fontWeight: '700',
+                                cursor: 'pointer', fontSize: '0.85rem', backdropFilter: 'blur(4px)'
+                            }}>✓ Resolve</button>
+                        </Motion.div>
+                    )}
+                </AnimatePresence>
+
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', background: '#f1f5f9', borderRadius: '16px', padding: '0.4rem' }}>
                     {[
                         { key: 'overview', label: 'Health Overview', icon: <Activity size={16} /> },
@@ -149,21 +262,41 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
                 {activeTab === 'overview' && (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1.5rem' }}>
 
-                        <Motion.div whileHover={{ y: -3 }} style={card}>
+                        <Motion.div whileHover={{ y: -3 }} style={{
+                            ...card,
+                            ...(sosActive ? {
+                                background: 'linear-gradient(135deg, rgba(254,226,226,0.95), rgba(254,202,202,0.95))',
+                                border: '2px solid #ef4444',
+                                boxShadow: '0 12px 34px rgba(239,68,68,0.2)'
+                            } : {})
+                        }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                                <div style={{ background: '#fce4ec', width: '48px', height: '48px', borderRadius: '14px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}><Baby color="var(--primary)" size={26} /></div>
+                                <div style={{ background: sosActive ? '#ef4444' : '#fce4ec', width: '48px', height: '48px', borderRadius: '14px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                    {sosActive ? <ShieldAlert color="white" size={26} /> : <Baby color="var(--primary)" size={26} />}
+                                </div>
                                 <div style={{ textAlign: 'right' }}>
-                                    <span style={badge('var(--primary)')}>Week {currentWeek}</span>
-                                    <small style={{ display: 'block', color: '#94a3b8', marginTop: '0.3rem' }}>Trimester {trimester}</small>
+                                    {sosActive ? (
+                                        <span style={{ ...badge('#ef4444'), fontSize: '0.85rem', animation: 'sosPulse 2s ease-in-out infinite' }}>⚠️ CRITICAL</span>
+                                    ) : (
+                                        <>
+                                            <span style={badge('var(--primary)')}>Week {currentWeek}</span>
+                                            <small style={{ display: 'block', color: '#94a3b8', marginTop: '0.3rem' }}>Trimester {trimester}</small>
+                                        </>
+                                    )}
                                 </div>
                             </div>
-                            <h3 style={{ fontSize: '1.3rem', marginBottom: '0.8rem' }}>Pregnancy Progress</h3>
-                            <div style={{ height: '10px', background: '#f1f5f9', borderRadius: '10px', overflow: 'hidden', marginBottom: '1rem' }}>
+                            <h3 style={{ fontSize: '1.3rem', marginBottom: '0.8rem', color: sosActive ? '#b91c1c' : 'inherit' }}>
+                                {sosActive ? '⚠️ CRITICAL STATUS' : 'Pregnancy Progress'}
+                            </h3>
+                            <div style={{ height: '10px', background: sosActive ? '#fecaca' : '#f1f5f9', borderRadius: '10px', overflow: 'hidden', marginBottom: '1rem' }}>
                                 <Motion.div initial={{ width: 0 }} animate={{ width: `${progressPercent}%` }} transition={{ duration: 1.5 }}
-                                    style={{ height: '100%', background: 'linear-gradient(90deg, var(--primary), var(--secondary))' }} />
+                                    style={{ height: '100%', background: sosActive ? '#ef4444' : 'linear-gradient(90deg, var(--primary), var(--secondary))' }} />
                             </div>
-                            <p style={{ color: 'var(--text-light)', fontSize: '0.95rem' }}>
-                                Baby is size of a <b style={{ color: 'var(--primary)' }}>{getBabySize(currentWeek)}</b> • <b style={{ color: 'var(--primary)' }}>{Math.max(0, 40 - currentWeek)}</b> weeks to go!
+                            <p style={{ color: sosActive ? '#991b1b' : 'var(--text-light)', fontSize: '0.95rem' }}>
+                                {sosActive
+                                    ? 'Emergency alert is active. Medical attention required.'
+                                    : <>Baby is size of a <b style={{ color: 'var(--primary)' }}>{getBabySize(currentWeek)}</b> • <b style={{ color: 'var(--primary)' }}>{Math.max(0, 40 - currentWeek)}</b> weeks to go!</>
+                                }
                             </p>
                         </Motion.div>
 
@@ -243,10 +376,55 @@ const Dashboard = ({ user, onBack, onEmergencyCall }) => {
                             </div>
                         </div>
 
-                        <div style={{ ...card, background: '#fef2f2', border: '2px solid #fee2e2', textAlign: 'center' }}>
-                            <div style={{ width: '56px', height: '56px', background: '#ef4444', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 1rem', boxShadow: '0 0 20px rgba(239,68,68,0.3)' }}><AlertTriangle color="white" size={28} /></div>
-                            <h3 style={{ color: '#b91c1c', marginBottom: '0.5rem' }}>Need Help Now?</h3>
-                            <button onClick={onEmergencyCall} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '0.8rem 2rem', borderRadius: '50px', fontWeight: 'bold', cursor: 'pointer' }}>EMERGENCY CALL</button>
+                        <div style={{ ...card, background: sosActive ? 'linear-gradient(135deg, #450a0a, #7f1d1d)' : '#fef2f2', border: sosActive ? '2px solid #ef4444' : '2px solid #fee2e2', textAlign: 'center' }}>
+                            {/* Panic Button with long-press */}
+                            <div style={{ position: 'relative', width: '100px', height: '100px', margin: '0 auto 1rem' }}>
+                                {/* Progress ring */}
+                                <svg width="100" height="100" style={{ position: 'absolute', top: 0, left: 0, transform: 'rotate(-90deg)' }}>
+                                    <circle cx="50" cy="50" r="45" fill="none" stroke={sosActive ? 'rgba(239,68,68,0.3)' : '#fee2e2'} strokeWidth="6" />
+                                    <circle cx="50" cy="50" r="45" fill="none" stroke="#ef4444" strokeWidth="6"
+                                        strokeDasharray={`${2 * Math.PI * 45}`}
+                                        strokeDashoffset={`${2 * Math.PI * 45 * (1 - panicProgress / 100)}`}
+                                        strokeLinecap="round" style={{ transition: panicHolding ? 'none' : 'stroke-dashoffset 0.3s' }} />
+                                </svg>
+                                <button
+                                    onMouseDown={() => !sosSending && setPanicHolding(true)}
+                                    onMouseUp={() => setPanicHolding(false)}
+                                    onMouseLeave={() => setPanicHolding(false)}
+                                    onTouchStart={() => !sosSending && setPanicHolding(true)}
+                                    onTouchEnd={() => setPanicHolding(false)}
+                                    disabled={sosSending}
+                                    style={{
+                                        position: 'absolute', top: '10px', left: '10px',
+                                        width: '80px', height: '80px', borderRadius: '50%',
+                                        background: panicHolding
+                                            ? 'linear-gradient(135deg, #b91c1c, #7f1d1d)'
+                                            : 'linear-gradient(135deg, #ef4444, #dc2626)',
+                                        color: 'white', border: 'none', cursor: sosSending ? 'wait' : 'pointer',
+                                        display: 'flex', justifyContent: 'center', alignItems: 'center',
+                                        boxShadow: panicHolding
+                                            ? '0 0 40px rgba(239,68,68,0.8), inset 0 2px 4px rgba(0,0,0,0.3)'
+                                            : '0 0 20px rgba(239,68,68,0.4)',
+                                        transform: panicHolding ? 'scale(0.95)' : 'scale(1)',
+                                        transition: 'transform 0.1s, box-shadow 0.3s',
+                                        animation: !panicHolding && !sosSending ? 'sosPulse 2s ease-in-out infinite' : 'none',
+                                    }}>
+                                    {sosSending ? <Loader className="spin" size={28} /> : <ShieldAlert size={32} />}
+                                </button>
+                            </div>
+                            <h3 style={{ color: sosActive ? 'white' : '#b91c1c', marginBottom: '0.5rem', fontSize: '1.2rem' }}>
+                                {sosSending ? 'Sending SOS...' : panicHolding ? 'Keep Holding...' : 'SOS Panic Button'}
+                            </h3>
+                            <p style={{ color: sosActive ? 'rgba(255,255,255,0.7)' : '#94a3b8', fontSize: '0.82rem', margin: '0 0 0.8rem' }}>
+                                {sosMessage || (sosActive ? 'Alert is active. Emergency contacts notified.' : 'Hold button for 3 seconds to send emergency alert')}
+                            </p>
+                            {!sosActive && (
+                                <button onClick={onEmergencyCall} style={{
+                                    background: 'transparent', color: '#ef4444', border: '1px solid #fca5a5',
+                                    padding: '0.5rem 1.2rem', borderRadius: '50px', fontWeight: '600',
+                                    cursor: 'pointer', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem'
+                                }}><Phone size={14} /> Call Janani Instead</button>
+                            )}
                         </div>
 
                         <div style={{ ...card, gridColumn: '1 / -1' }}>

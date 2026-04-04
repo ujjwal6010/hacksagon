@@ -260,6 +260,15 @@ select:focus-visible {
   }
 }
 
+@keyframes sosPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(239, 68, 68, 0.6);
+  }
+}
+
 .dashboard-shell {
   background: radial-gradient(circle at 15% 12%, #ffe7df 0%, transparent 30%),
     radial-gradient(circle at 86% 6%, #ffe6ef 0%, transparent 26%),

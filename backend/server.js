@@ -10,6 +10,7 @@ const authRoutes = require('./routes/auth');
 const voiceRoutes = require('./routes/voice');
 const inboundRoutes = require('./routes/inbound');
 const dashboardRoutes = require('./routes/dashboard');
+const sosRoutes = require('./routes/sos');
 const { initSummaryCron } = require('./services/summaryCron');
 
 const app = express();
@@ -118,6 +119,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/voice', voiceRoutes);
 app.use('/api/inbound', inboundRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/sos', sosRoutes);
 
 app.use((error, req, res, next) => {
   console.error(error);

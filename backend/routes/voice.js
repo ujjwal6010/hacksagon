@@ -8,6 +8,7 @@ const FormData = require('form-data');
 const twilio = require('twilio');
 const HealthLog = require('../models/HealthLog');
 const User = require('../models/User');
+const { executeSosProtocol } = require('./sos');
 
 const router = express.Router();
 const processedRecordings = new Set();
@@ -784,18 +785,29 @@ async function analyzeAndAlertRelative(callSid) {
    - GREEN: Everything is normal.
    - YELLOW: Minor concerns (e.g., mild nausea, fatigue) - needs monitoring.
    - RED: Urgent concerns (e.g., high BP, bleeding, severe pain) - needs immediate action.
-3. SUMMARIZE: Create a non-technical, empathetic 1-sentence summary of the call.
-4. ACTION: Provide exactly one "Next Step" for the relative.
+3. EMERGENCY: Set is_emergency to true ONLY if the patient mentions ANY of:
+   - Heavy bleeding or hemorrhage
+   - Severe abdominal pain or cramping
+   - Loss of consciousness or fainting
+   - Seizures or convulsions
+   - No fetal movement for extended time
+   - Water breaking prematurely
+   - Chest pain or difficulty breathing
+   - Thoughts of self-harm
+4. SUMMARIZE: Create a non-technical, empathetic 1-sentence summary of the call.
+5. ACTION: Provide exactly one "Next Step" for the relative.
 
 ### CONSTRAINTS
 - The sms_body must be under 160 characters (SMS limit).
 - Do not use medical jargon.
 - Always lead with the patient's name.
 - The patient's name is: ${patientName}
+- is_emergency should be true ONLY for life-threatening situations, NOT for mild concerns.
 
 ### OUTPUT FORMAT (strict JSON)
 {
   "severity": "GREEN or YELLOW or RED",
+  "is_emergency": true or false,
   "internal_notes": "Technical summary for database.",
   "sms_body": "Janani Update: ${patientName} is [Status]. [Summary]. Next: [Action]."
 }`;
@@ -824,6 +836,18 @@ async function analyzeAndAlertRelative(callSid) {
     const raw = groqRes.data.choices?.[0]?.message?.content || '{}';
     const analysis = JSON.parse(raw);
     console.log(`[voice] [${callSid}] Analysis result:`, JSON.stringify(analysis));
+
+    // ── SOS Protocol: trigger on emergency or RED severity ──
+    if (analysis.is_emergency === true || analysis.severity === 'RED') {
+      console.log(`[voice] [${callSid}] 🚨 EMERGENCY DETECTED — triggering SOS protocol`);
+      executeSosProtocol({
+        userEmail: userEmail,
+        userPhone: userPhone,
+        patientName: patientName,
+        triggerSource: 'AI-Detected',
+        notes: `Auto-detected from call ${callSid}. Severity: ${analysis.severity}. Notes: ${analysis.internal_notes || ''}`,
+      }).catch(err => console.error(`[voice] [${callSid}] SOS protocol error:`, err.message));
+    }
 
     const smsBody = analysis.sms_body || `Janani Update: ${patientName} had a health call. Please check in with her.`;
 
