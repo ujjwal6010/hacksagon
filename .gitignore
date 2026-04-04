@@ -16,6 +16,6 @@ backend/__pycache__/
 backend/**/*.pyc
 
 # Generated runtime artifacts
-backend/public/tts/*.wav
+backend/public/tts/
 backend/.mock-db.json
 backend/python/vectordb/
