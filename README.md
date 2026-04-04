@@ -33,7 +33,7 @@ Built for the Hacksagon hackathon.
 | **Audio Processing** | FFmpeg (WAV → MP3 conversion for telephony) |
 | **Auth** | JWT + bcrypt |
 | **PWA** | vite-plugin-pwa, Workbox |
-| **Deployment** | Docker (multi-stage), Vercel (frontend) |
+
 
 ---
 
@@ -403,54 +403,6 @@ incidents (SOS)
 | `npm run build` | Production build to `dist/` |
 | `npm run preview` | Preview production build locally |
 | `npm run lint` | Run ESLint |
-
----
-
-## Deployment
-
-### Frontend → Vercel
-
-The frontend is pre-configured for Vercel deployment:
-
-```bash
-cd frontend
-npx vercel --prod
-```
-
-Configuration lives in `vercel.json` — SPA rewrites are already set up.
-
-Set the environment variable in Vercel's dashboard:
-```
-VITE_API_URL=https://your-backend-url.com
-```
-
-### Backend → Docker
-
-The backend ships with a multi-stage Dockerfile:
-
-```bash
-cd backend
-
-# Build the image
-docker build -t janani-backend .
-
-# Run with environment variables
-docker run -p 5000:5000 -p 8000:8000 \
-  --env-file .env \
-  janani-backend
-```
-
-The `start.sh` entrypoint:
-1. Installs Python dependencies
-2. Starts the Python FastAPI service on port 8000
-3. Waits until it's healthy (up to 120s)
-4. Starts the Node.js Express server on port 5000
-
-### Backend → Railway / Render / Fly.io
-
-Any Docker-compatible PaaS works. Expose ports **5000** and **8000**, set all `.env` variables, and deploy the `backend/` directory.
-
-For Twilio webhooks to work, the backend must be publicly accessible. Use `WEBHOOK_BASE_URL` to point to your deployment URL.
 
 ---
 
