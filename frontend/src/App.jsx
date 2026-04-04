@@ -44,6 +44,11 @@ const Navbar = ({ onAuthClick, user, onLogout, onContactClick, contactLoading, s
           to="home"
           smooth={true}
           duration={500}
+          onClick={() => {
+            setView('landing');
+            window.history.pushState({}, '', '/');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
           className="nav-brand"
           style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
         >
@@ -123,6 +128,8 @@ const Navbar = ({ onAuthClick, user, onLogout, onContactClick, contactLoading, s
 
 const Hero = ({ onAuthClick, user, setView }) => {
   const [petals, setPetals] = useState([]);
+  const [isHeroImageHovered, setIsHeroImageHovered] = useState(false);
+  const [heroImageShine, setHeroImageShine] = useState({ x: 50, y: 38 });
 
   const spawnPetals = (x, y) => {
     const newPetals = Array.from({ length: 12 }).map(() => ({
@@ -135,6 +142,17 @@ const Hero = ({ onAuthClick, user, setView }) => {
       duration: Math.random() * 2 + 2,
     }));
     setPetals((prev) => [...prev, ...newPetals]);
+  };
+
+  const handleHeroImageMouseMove = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+
+    setHeroImageShine({
+      x: Math.max(0, Math.min(100, x)),
+      y: Math.max(0, Math.min(100, y)),
+    });
   };
 
   return (
@@ -257,22 +275,50 @@ const Hero = ({ onAuthClick, user, setView }) => {
               zIndex: -1,
               opacity: 0.6
             }}></div>
-            <img
-              className="hero-image-mask hero-illustration-float"
-              src={HERO_IMAGE}
-              alt="Maternal Health"
+            <Motion.div
+              onMouseEnter={() => setIsHeroImageHovered(true)}
+              onMouseLeave={() => setIsHeroImageHovered(false)}
+              onMouseMove={handleHeroImageMouseMove}
               style={{
                 width: '100%',
                 maxWidth: '450px',
                 height: '450px',
-                objectFit: 'cover',
                 borderRadius: '50%',
-                border: '6px solid rgba(255, 255, 255, 0.9)'
+                position: 'relative',
+                overflow: 'hidden'
               }}
-              onError={(e) => {
-                e.target.src = 'https://images.unsplash.com/photo-1559832306-27a0278d99a7?auto=format&fit=crop&q=80&w=1000';
-              }}
-            />
+              animate={{ scale: isHeroImageHovered ? 1.012 : 1 }}
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+            >
+              <img
+                className="hero-image-mask hero-illustration-float"
+                src={HERO_IMAGE}
+                alt="Maternal Health"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  borderRadius: '50%',
+                  border: '6px solid rgba(255, 255, 255, 0.9)'
+                }}
+                onError={(e) => {
+                  e.target.src = 'https://images.unsplash.com/photo-1559832306-27a0278d99a7?auto=format&fit=crop&q=80&w=1000';
+                }}
+              />
+
+              <div
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  borderRadius: '50%',
+                  pointerEvents: 'none',
+                  background: `radial-gradient(circle at ${heroImageShine.x}% ${heroImageShine.y}%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 244, 250, 0.14) 20%, rgba(255, 255, 255, 0) 55%)`,
+                  opacity: isHeroImageHovered ? 1 : 0,
+                  transition: 'opacity 320ms ease'
+                }}
+              />
+            </Motion.div>
           </Motion.div>
         </div>
       </section>
