@@ -258,11 +258,20 @@ function deriveSimpleClinicalData(queryEnglish, answerEnglish) {
     medicationKeywords.push({ name: 'iron tablet', taken: false, taken_time: '', effect_noted: '' });
   }
 
+  // Relief detection: check BOTH user message and AI reply for relief signals
+  const combined = (queryEnglish + ' ' + answerEnglish).toLowerCase();
+  const reliefKeywords = ['better', 'improved', 'relieved', 'relief', 'gone away', 'went away',
+    'feeling good', 'feeling fine', 'no more pain', 'no pain', 'subsided', 'recovered',
+    'much better', 'helped', 'working', 'medicine helped', 'tablet helped',
+    'feeling okay', 'feel okay', 'not hurting', 'stopped hurting', 'manageable'];
+  const reliefNoted = reliefKeywords.some(kw => combined.includes(kw));
+  const reliefDetails = reliefNoted ? reliefKeywords.filter(kw => combined.includes(kw)).join(', ') : '';
+
   return {
     symptoms,
     medications: medicationKeywords,
-    relief_noted: answerEnglish.toLowerCase().includes('better'),
-    relief_details: '',
+    relief_noted: reliefNoted,
+    relief_details: reliefDetails,
     fetal_movement_status: 'No',
     severity_score: symptoms.length ? 5 : 3,
     ai_summary: answerEnglish.slice(0, 240),

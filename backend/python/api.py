@@ -144,12 +144,18 @@ async def extract_clinical_data(transcript: str, medical_context: str = "") -> d
 TRANSCRIPT: {transcript}
 CONTEXT: {medical_context}
 
+IMPORTANT for relief_noted:
+- Set true if patient says they feel better, improved, recovered, pain subsided, medicine helping, etc.
+- ALSO set true if the AI response indicates relief advice was given and patient acknowledged improvement.
+- Set true for ANY positive health progress or symptom improvement mentioned.
+- Examples of relief: "I'm feeling better", "the pain went away", "medicine helped", "much improved"
+
 Return ONLY valid JSON (no markdown):
 {{
-  "symptoms": ["list of symptoms"],
-  "medications": ["list of medications/supplements"],
+  "symptoms": ["list of symptoms mentioned"],
+  "medications": ["list of medications/supplements mentioned"],
   "relief_noted": true/false,
-  "relief_details": "brief detail",
+  "relief_details": "what improved or helped",
   "fetal_movement": "Yes/No/Unknown",
   "severity": 1-10,
   "summary": "one sentence clinical summary"
