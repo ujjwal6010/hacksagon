@@ -1,6 +1,8 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
+const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 const axios = require('axios');
 const FormData = require('form-data');
 const twilio = require('twilio');
@@ -173,6 +175,25 @@ function splitTextIntoChunks(text, maxLen = 490) {
   return chunks;
 }
 
+function wavToMp3(wavPath, mp3Path) {
+  return new Promise((resolve, reject) => {
+    execFile(ffmpegPath, [
+      '-y', '-i', wavPath,
+      '-codec:a', 'libmp3lame',
+      '-b:a', '32k',       // 32 kbps is plenty for telephone speech
+      '-ar', '8000',       // match Twilio's 8 kHz telephony codec
+      '-ac', '1',          // mono
+      mp3Path,
+    ], { timeout: 15000 }, (err, _stdout, stderr) => {
+      if (err) {
+        console.error('[voice] ffmpeg stderr:', stderr);
+        return reject(err);
+      }
+      resolve(mp3Path);
+    });
+  });
+}
+
 async function sarvamTTS(text, languageCode, outputPath) {
   const targetLanguage = normalizeBulbulLanguage(languageCode);
   const chunks = splitTextIntoChunks(text);
@@ -186,7 +207,7 @@ async function sarvamTTS(text, languageCode, outputPath) {
         target_language_code: targetLanguage,
         speaker: 'priya',
         pace: 1,
-        speech_sample_rate: 22050,
+        speech_sample_rate: 8000,
         enable_preprocessing: true,
         model: 'bulbul:v3',
       },
@@ -206,8 +227,21 @@ async function sarvamTTS(text, languageCode, outputPath) {
     audioBuffers.push(Buffer.from(audioBase64, 'base64'));
   }
 
-  fs.writeFileSync(outputPath, Buffer.concat(audioBuffers));
-  return outputPath;
+  // Write raw WAV first
+  const wavPath = outputPath;
+  fs.writeFileSync(wavPath, Buffer.concat(audioBuffers));
+
+  // Convert to MP3 — dramatically smaller for Twilio to download
+  const mp3Path = outputPath.replace(/\.wav$/, '.mp3');
+  try {
+    await wavToMp3(wavPath, mp3Path);
+    // Clean up the large WAV immediately
+    fs.unlinkSync(wavPath);
+    return mp3Path;
+  } catch (convErr) {
+    console.error('[voice] MP3 conversion failed, falling back to WAV:', convErr.message);
+    return wavPath;
+  }
 }
 
 function deriveSimpleClinicalData(queryEnglish, answerEnglish) {
@@ -389,11 +423,12 @@ router.post('/process-ai', (req, res) => {
     processedRecordings.add(RecordingSid);
   }
 
-  // ── Respond INSTANTLY with a hold message so the caller isn't waiting in silence ──
+  // ── Respond INSTANTLY with a short hold so the caller isn't waiting in silence ──
   const xml = voiceResponseXml((vr) => {
+    vr.pause({ length: 1 });
     vr.say(
       { language: 'hi-IN', voice: 'Polly.Aditi' },
-      'Ek second, main aapka jawab dhundh rahi hoon.'
+      'Ek second.'
     );
     // Keep the call alive with a long pause while background processing runs
     vr.pause({ length: 30 });
@@ -453,18 +488,21 @@ async function processVoicePipeline({ RecordingUrl, CallSid, From, To, Direction
   }
 
   let pipelineStep = 'init';
+  const t0 = Date.now();
+  const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
   try {
     pipelineStep = 'download-recording';
-    console.log(`[voice] [${CallSid}] Downloading recording: ${RecordingUrl}`);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] Downloading recording: ${RecordingUrl}`);
     await downloadTwilioRecordingWithRetry(RecordingUrl, inputPath);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] Download done`);
 
     pipelineStep = 'sarvam-stt';
-    console.log(`[voice] [${CallSid}] Running Sarvam STT...`);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] Running Sarvam STT...`);
     const stt = await sarvamSTT(inputPath);
     const userNativeText = (stt.text || '').trim();
     const detectedLanguage = stt.languageCode || 'hi-IN';
-    console.log(`[voice] [${CallSid}] STT result: lang=${detectedLanguage}, text="${userNativeText.slice(0, 80)}"`);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] STT done: lang=${detectedLanguage}, text="${userNativeText.slice(0, 80)}"`);
 
     if (!userNativeText) {
       // No speech detected — redirect call back to main menu
@@ -479,54 +517,43 @@ async function processVoicePipeline({ RecordingUrl, CallSid, From, To, Direction
     }
 
     pipelineStep = 'translate-to-english';
-    console.log(`[voice] [${CallSid}] Translating to English...`);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] Translating to English...`);
     const userEnglishText = await sarvamTranslate(userNativeText, detectedLanguage, 'en-IN');
-    console.log(`[voice] [${CallSid}] English: "${userEnglishText.slice(0, 80)}"`);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] English: "${userEnglishText.slice(0, 80)}"`);
 
     pipelineStep = 'python-rag';
-    console.log(`[voice] [${CallSid}] Querying Python RAG...`);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] Querying Python RAG...`);
     const identity = callUserIdentity.get(CallSid);
-    console.log(`[voice] [${CallSid}] User identity lookup: ${identity ? JSON.stringify(identity) : 'NOT FOUND'} (map size: ${callUserIdentity.size})`);
     const aiEnglishReply = await queryPythonRag(userEnglishText, identity?.phone || From || null, identity?.email || '');
-    console.log(`[voice] [${CallSid}] RAG reply: "${aiEnglishReply.slice(0, 80)}"`);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] RAG done: "${aiEnglishReply.slice(0, 80)}"`);
 
     pipelineStep = 'translate-to-native';
-    console.log(`[voice] [${CallSid}] Translating reply to ${detectedLanguage}...`);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] Translating reply to ${detectedLanguage}...`);
     const aiNativeReply = await sarvamTranslate(aiEnglishReply, 'en-IN', detectedLanguage);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] Translation done`);
 
-    pipelineStep = 'sarvam-tts';
-    console.log(`[voice] [${CallSid}] Running Sarvam TTS...`);
-    await sarvamTTS(aiNativeReply, detectedLanguage, outputPath);
-
-    pipelineStep = 'save-interaction';
-    await saveVoiceInteraction({
-      from: From,
-      userMessageNative: userNativeText,
-      userMessageEnglish: userEnglishText,
-      aiReplyNative: aiNativeReply,
-      aiReplyEnglish: aiEnglishReply,
-      callSid: CallSid,
-    });
-
-    // Record this interaction for post-call SMS analysis
-    if (CallSid) {
-      if (!callSessionInteractions.has(CallSid)) {
-        callSessionInteractions.set(CallSid, []);
-      }
-      callSessionInteractions.get(CallSid).push({
-        user: userEnglishText,
-        ai: aiEnglishReply,
-      });
-    }
+    // Run TTS and save in parallel — they're independent
+    pipelineStep = 'tts-and-save';
+    console.log(`[voice] [${CallSid}] [${elapsed()}] Running Sarvam TTS + save in parallel...`);
+    const [finalAudioFile] = await Promise.all([
+      sarvamTTS(aiNativeReply, detectedLanguage, outputPath),
+      saveVoiceInteraction({
+        from: From,
+        userMessageNative: userNativeText,
+        userMessageEnglish: userEnglishText,
+        aiReplyNative: aiNativeReply,
+        aiReplyEnglish: aiEnglishReply,
+        callSid: CallSid,
+      }),
+    ]);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] TTS + save done (${path.basename(finalAudioFile)})`);
 
     // Reset error count on success
     if (CallSid) {
       callErrorCounts.delete(CallSid);
     }
 
-    const publicAudioUrl = `${WEBHOOK_BASE_URL}/public/tts/${path.basename(outputPath)}`;
-
-    // Store the audio URL so the caller can replay it
+    const publicAudioUrl = `${WEBHOOK_BASE_URL}/public/tts/${path.basename(finalAudioFile)}`;
     callLastAudioUrl.set(CallSid, publicAudioUrl);
 
     // ── Interrupt the hold message and play the AI response + menu ──
@@ -545,12 +572,22 @@ async function processVoicePipeline({ RecordingUrl, CallSid, From, To, Direction
           { language: 'hi-IN', voice: 'Polly.Aditi' },
           'Jawab dobara sunne ke liye 1 dabayein. Naya sawaal poochne ke liye 2 dabayein.'
         );
-        // If no digit pressed, default to new query
         vr.redirect(`${WEBHOOK_BASE_URL}/api/voice/new-query`);
       }),
     });
 
-    console.log(`[voice] [${CallSid}] ✅ Pipeline complete, playing TTS response`);
+    console.log(`[voice] [${CallSid}] [${elapsed()}] ✅ Pipeline complete, playing TTS response`);
+
+    // Record interaction for post-call SMS (non-blocking, after user already hears response)
+    if (CallSid) {
+      if (!callSessionInteractions.has(CallSid)) {
+        callSessionInteractions.set(CallSid, []);
+      }
+      callSessionInteractions.get(CallSid).push({
+        user: userEnglishText,
+        ai: aiEnglishReply,
+      });
+    }
   } catch (error) {
     const errMsg = error?.response?.data
       ? `HTTP ${error.response.status}: ${JSON.stringify(error.response.data).slice(0, 200)}`
