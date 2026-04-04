@@ -501,7 +501,7 @@ async function processVoicePipeline({ RecordingUrl, CallSid, From, To, Direction
     console.log(`[voice] [${CallSid}] [${elapsed()}] Running Sarvam STT...`);
     const stt = await sarvamSTT(inputPath);
     const userNativeText = (stt.text || '').trim();
-    const detectedLanguage = stt.languageCode || 'hi-IN';
+    let detectedLanguage = stt.languageCode || 'hi-IN';
     console.log(`[voice] [${CallSid}] [${elapsed()}] STT done: lang=${detectedLanguage}, text="${userNativeText.slice(0, 80)}"`);
 
     if (!userNativeText) {
@@ -517,9 +517,16 @@ async function processVoicePipeline({ RecordingUrl, CallSid, From, To, Direction
     }
 
     pipelineStep = 'translate-to-english';
-    console.log(`[voice] [${CallSid}] [${elapsed()}] Translating to English...`);
-    const userEnglishText = await sarvamTranslate(userNativeText, detectedLanguage, 'en-IN');
-    console.log(`[voice] [${CallSid}] [${elapsed()}] English: "${userEnglishText.slice(0, 80)}"`);
+    let userEnglishText;
+    if (detectedLanguage === 'en-IN') {
+      // Already English — no translation needed
+      userEnglishText = userNativeText;
+      console.log(`[voice] [${CallSid}] [${elapsed()}] Already English, skipping translation`);
+    } else {
+      console.log(`[voice] [${CallSid}] [${elapsed()}] Translating to English...`);
+      userEnglishText = await sarvamTranslate(userNativeText, detectedLanguage, 'en-IN');
+      console.log(`[voice] [${CallSid}] [${elapsed()}] English: "${userEnglishText.slice(0, 80)}"`);
+    }
 
     pipelineStep = 'python-rag';
     console.log(`[voice] [${CallSid}] [${elapsed()}] Querying Python RAG...`);
